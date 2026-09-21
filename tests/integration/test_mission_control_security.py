@@ -130,10 +130,7 @@ class TestMissionControlSecurity(unittest.TestCase):
     def test_safe_get_endpoints_unauthenticated(self):
         safe_endpoints = [
             "/api/status",
-            "/api/agents",
             "/api/health",
-            "/api/tasks",
-            "/api/worktrees",
             "/api/token",
         ]
         for ep in safe_endpoints:
@@ -267,7 +264,8 @@ class TestMissionControlSecurity(unittest.TestCase):
 
         try:
             # 2. GET /api/worktrees
-            status, _, body = self._request("/api/worktrees")
+            auth_hdr = {"Authorization": f"Bearer {self.token}"}
+            status, _, body = self._request("/api/worktrees", headers=auth_hdr)
             self.assertEqual(status, 200)
             self.assertIn("worktrees", body)
             matching = [w for w in body["worktrees"] if w["task_id"] == task_id]
@@ -275,7 +273,7 @@ class TestMissionControlSecurity(unittest.TestCase):
             self.assertEqual(matching[0]["status"], "ACTIVE")
 
             # 3. GET /api/worktrees/diff
-            status, _, diff_body = self._request(f"/api/worktrees/diff?task_id={task_id}")
+            status, _, diff_body = self._request(f"/api/worktrees/diff?task_id={task_id}", headers=auth_hdr)
             self.assertEqual(status, 200)
             self.assertIn("diff", diff_body)
 

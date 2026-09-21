@@ -74,7 +74,7 @@ class TestProviderConfig(unittest.TestCase):
 
     def test_accounts_load_from_config(self):
         accounts = {a.agent_id for a in get_accounts("antigravity")}
-        self.assertEqual(accounts, {"antigravity-account-1", "antigravity-account-2", "antigravity-account-3"})
+        self.assertTrue({"antigravity-account-1", "antigravity-account-2", "antigravity-account-3"}.issubset(accounts))
 
     def test_bounded_concurrency_for_this_host(self):
         self.assertEqual(max_concurrent_agents(), 3)

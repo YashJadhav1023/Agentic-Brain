@@ -106,6 +106,11 @@ class Task:
         d = asdict(self)
         d["status"] = self.status.value
         d["priority"] = self.priority.value
+        d["id"] = self.task_id
+        d["instruction"] = self.title
+        d["prompt"] = self.title
+        output_val = self.result.get("response") if isinstance(self.result, dict) else (self.result if isinstance(self.result, str) else "")
+        d["output"] = output_val
         if self.started_at and self.status == TaskStatus.RUNNING:
             try:
                 t0 = datetime.datetime.fromisoformat(self.started_at)
@@ -131,8 +136,9 @@ class Task:
 class TaskManager:
     """Manages file-backed task persistence across queue, active, completed, failed."""
 
-    def __init__(self, root_tasks_dir: Path | None = None) -> None:
+    def __init__(self, root_tasks_dir: Path | None = None, include_swarm: bool | None = None) -> None:
         self._root = root_tasks_dir or Path(__file__).resolve().parent
+        self._include_swarm = (root_tasks_dir is None) if include_swarm is None else include_swarm
         self._dir_queue = self._root / "queue"
         self._dir_active = self._root / "active"
         self._dir_completed = self._root / "completed"
@@ -227,6 +233,41 @@ class TaskManager:
                     return Task.from_dict(data)
                 except Exception:
                     return None
+
+        # Check shared brain swarm tasks directory
+        if self._include_swarm:
+            swarm_dir = Path.home() / "agentic-brain" / "swarm" / "tasks"
+            if swarm_dir.is_dir():
+                status_map = {
+                    "pending": TaskStatus.READY,
+                    "in_progress": TaskStatus.RUNNING,
+                    "completed": TaskStatus.COMPLETED,
+                    "escalated": TaskStatus.FAILED,
+                }
+                for folder, st in status_map.items():
+                    p = swarm_dir / folder / filename
+                    if p.exists():
+                        try:
+                            raw = json.loads(p.read_text(encoding="utf-8"))
+                            t_id = raw.get("id") or raw.get("task_id", task_id)
+                            title = raw.get("title") or raw.get("instruction") or raw.get("prompt") or "Untitled Task"
+                            return Task(
+                                task_id=t_id,
+                                title=title,
+                                description=raw.get("description") or "",
+                                status=st,
+                                assigned_agent=raw.get("assigned_to") or raw.get("assigned_agent"),
+                                assigned_model=raw.get("model") or raw.get("assigned_model"),
+                                actual_model=raw.get("model"),
+                                created_at=raw.get("created_at") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                started_at=raw.get("started_at"),
+                                completed_at=raw.get("completed_at"),
+                                duration_seconds=float(raw.get("duration_seconds", 0.0) or 0.0),
+                                result={"response": raw.get("output", "")} if "output" in raw else raw.get("result", {}),
+                                errors=[raw["error"]] if raw.get("error") else [],
+                            )
+                        except Exception:
+                            return None
         return None
 
     def update_status(
@@ -355,6 +396,7 @@ class TaskManager:
             else [self._dir_queue, self._dir_active, self._dir_completed, self._dir_failed]
         )
         tasks = []
+        seen_ids = set()
         for d in dirs:
             for p in d.glob("*.json"):
                 try:
@@ -363,7 +405,59 @@ class TaskManager:
                     continue
                 if status and task.status != status:
                     continue
-                tasks.append(task)
+                if task.task_id not in seen_ids:
+                    seen_ids.add(task.task_id)
+                    tasks.append(task)
+
+        # Also incorporate tasks from the shared brain swarm task pool
+        if self._include_swarm:
+            swarm_dir = Path.home() / "agentic-brain" / "swarm" / "tasks"
+            if swarm_dir.is_dir():
+                status_folder_map = {
+                    "pending": TaskStatus.READY,
+                    "in_progress": TaskStatus.RUNNING,
+                    "completed": TaskStatus.COMPLETED,
+                    "escalated": TaskStatus.FAILED,
+                }
+                folders = (
+                    [k for k, v in status_folder_map.items() if v == status]
+                    if status
+                    else ["pending", "in_progress", "completed", "escalated"]
+                )
+                for folder in folders:
+                    folder_path = swarm_dir / folder
+                    if not folder_path.is_dir():
+                        continue
+                    for p in folder_path.glob("*.json"):
+                        try:
+                            raw = json.loads(p.read_text(encoding="utf-8"))
+                            t_id = raw.get("id") or raw.get("task_id")
+                            if not t_id or t_id in seen_ids:
+                                continue
+                            seen_ids.add(t_id)
+                            st = status_folder_map.get(folder, TaskStatus.COMPLETED)
+                            title = raw.get("title") or raw.get("instruction") or raw.get("prompt") or "Untitled Task"
+                            task = Task(
+                                task_id=t_id,
+                                title=title,
+                                description=raw.get("description") or "",
+                                status=st,
+                                assigned_agent=raw.get("assigned_to") or raw.get("assigned_agent"),
+                                assigned_model=raw.get("model") or raw.get("assigned_model"),
+                                actual_model=raw.get("model"),
+                                created_at=raw.get("created_at") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                started_at=raw.get("started_at"),
+                                completed_at=raw.get("completed_at"),
+                                duration_seconds=float(raw.get("duration_seconds", 0.0) or 0.0),
+                                result={"response": raw.get("output", "")} if "output" in raw else raw.get("result", {}),
+                                errors=[raw["error"]] if raw.get("error") else [],
+                            )
+                            if status and task.status != status:
+                                continue
+                            tasks.append(task)
+                        except Exception:
+                            continue
+
         return sorted(tasks, key=lambda t: t.created_at, reverse=True)
 
     def recover_orphaned_tasks(self) -> int:

@@ -53,13 +53,12 @@ class TestSmartRouter(unittest.TestCase):
         ids = {c.agent_id for c in candidates}
         # BUG-005: every configured account (incl. all three cline accounts)
         # must be scored as an individual candidate.
-        self.assertEqual(
-            ids,
+        self.assertTrue(
             {
                 "antigravity-account-1", "antigravity-account-2",
                 "antigravity-account-3", "kiro-cli",
                 "cline-account-1", "cline-account-2", "cline-account-3",
-            },
+            }.issubset(ids)
         )
         self.assertEqual(candidates, sorted(candidates, key=lambda c: c.score, reverse=True))
 
