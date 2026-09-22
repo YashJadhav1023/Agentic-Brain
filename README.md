@@ -1,7 +1,7 @@
 # Agentic Shared Memory & Multi-Agent Swarm Orchestrator
 
 [![Multi-Agent Status](https://img.shields.io/badge/Agents-4%20Active%20Headless-emerald.svg)](./docs/AGENTS.md)
-[![Hardware](https://img.shields.io/badge/Host-CachyOS%20Linux%20(2%20cores%20/%2016GB)-blue.svg)](./docs/ARCHITECTURE.md)
+[![Hardware](https://img.shields.io/badge/Host-CachyOS%20Linux%20(2%20cores%20/%2016GB)-blue.svg)](./ARCHITECTURE.md)
 [![Security](https://img.shields.io/badge/Security-Zero%20Secret%20Leak-success.svg)](./docs/SECURITY.md)
 [![Tests](https://img.shields.io/badge/Tests-510%2F510%20Passing-brightgreen.svg)](./docs/PHASE20_FINAL_AUDIT.md)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
@@ -9,6 +9,10 @@
 **Agentic Brain** is an enterprise-grade, ultra-lightweight autonomous multi-agent development and orchestration platform. It operates as a unified cognitive coordination layer over independent coding agents (**Google Antigravity Account 1**, **Google Antigravity Account 2**, **Kiro CLI**, and **Cline CLI**), providing autonomous multi-factor routing, contextual BM25 shared memory, structured handoffs, universal cross-agent continuation, automated rate-limit failover, git worktree sandboxing, and a real-time reactive Mission Control operations cockpit.
 
 ---
+
+> **New here?** **[ARCHITECTURE.md](ARCHITECTURE.md)** is the place to start: the
+> end-to-end request flow, how shared memory is stored and kept in sync, setup on
+> your own machine, and which MCP servers are used and why.
 
 ## Table of Contents
 

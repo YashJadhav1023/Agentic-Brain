@@ -1,4 +1,9 @@
-# Architecture
+# Architecture (internal short form)
+
+> The canonical architecture document is **[../ARCHITECTURE.md](../ARCHITECTURE.md)**
+> at the repository root. It additionally covers shared-memory storage and sync,
+> setup on a fresh clone, configuration, and the MCP servers in use.
+> This file is a condensed internal note on execution path, layout and design rules.
 
 ## Execution path
 
