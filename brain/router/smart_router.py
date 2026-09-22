@@ -49,7 +49,7 @@ from brain.router.models import (
     RoutingMode,
     RoutingScore,
 )
-from models.policies.model_policy import AGENT_CATALOGS, Complexity, select_model
+from models.policies.model_policy import AGENT_CATALOGS, Complexity, Risk, select_model
 from providers.registry.account_registry import AccountStatus
 from providers.registry.credential_manager import get_credential_manager
 from providers.registry.lifecycle import (
@@ -651,6 +651,11 @@ class SmartRouter:
         pref_agent = preferred_agent or preferred_account
         classification = self.classify_task(task_text)
         complexity = forced_complexity or classification.suggested_complexity
+        # Blast radius, not difficulty. select_model() escalates to the frontier
+        # tier on high/risk, but no call site ever supplied one, so risk could
+        # never influence the choice and a destructive task could be handed to a
+        # fast model. Derived from the classifier and threaded through below.
+        risk = getattr(classification, "risk", None) or Risk.LOW
         required = sorted(c.value for c in self.infer_capabilities(task_text))
 
         # 1. Manual / Explicit selection mode
@@ -672,7 +677,7 @@ class SmartRouter:
                 raise RuntimeError(
                     f"Requested agent '{preferred_agent}' is not healthy: {health_reason}"
                 )
-            model = preferred_model or select_model(adapter.agent_id, complexity=complexity).preferred_model
+            model = preferred_model or select_model(adapter.agent_id, complexity=complexity, risk=risk).preferred_model
 
             fallbacks = [
                 c for c in self.score_candidates(task_text, complexity, routing_mode=routing_mode)
@@ -684,7 +689,7 @@ class SmartRouter:
                     "provider": fb.provider,
                     "account": fb.account_id,
                     "agent_id": fb.agent_id,
-                    "model": select_model(fb.agent_id, complexity=complexity).preferred_model,
+                    "model": select_model(fb.agent_id, complexity=complexity, risk=risk).preferred_model,
                     "score": fb.score,
                 }
                 for fb in fallbacks
@@ -707,7 +712,7 @@ class SmartRouter:
                 reason=f"Explicitly selected agent {preferred_agent}",
                 fallback_agent_id=fallbacks[0].agent_id if fallbacks else None,
                 fallback_model=(
-                    select_model(fallbacks[0].agent_id, complexity=complexity).preferred_model
+                    select_model(fallbacks[0].agent_id, complexity=complexity, risk=risk).preferred_model
                     if fallbacks else None
                 ),
                 fallback_chain=fallback_chain,
@@ -730,7 +735,7 @@ class SmartRouter:
 
         winner = candidates[0]
         runner_up = candidates[1] if len(candidates) > 1 else None
-        model = preferred_model or select_model(winner.agent_id, complexity=complexity).preferred_model
+        model = preferred_model or select_model(winner.agent_id, complexity=complexity, risk=risk).preferred_model
 
         reason = "; ".join(winner.reasons) if winner.reasons else "highest scoring available agent"
 
@@ -739,7 +744,7 @@ class SmartRouter:
                 "provider": c.provider,
                 "account": c.account_id,
                 "agent_id": c.agent_id,
-                "model": select_model(c.agent_id, complexity=complexity).preferred_model,
+                "model": select_model(c.agent_id, complexity=complexity, risk=risk).preferred_model,
                 "score": c.score,
             }
             for c in candidates[1:]
@@ -757,7 +762,7 @@ class SmartRouter:
             reason=f"score {winner.score:.1f} — {reason}",
             fallback_agent_id=runner_up.agent_id if runner_up else None,
             fallback_model=(
-                select_model(runner_up.agent_id, complexity=complexity).preferred_model
+                select_model(runner_up.agent_id, complexity=complexity, risk=risk).preferred_model
                 if runner_up else None
             ),
             fallback_chain=fallback_chain,
