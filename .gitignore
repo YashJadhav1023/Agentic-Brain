@@ -62,3 +62,8 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Editor/tool backup snapshots must never be tracked: they duplicate source and
+# have leaked personal data in the past.
+*.bak
+*.bak-*
