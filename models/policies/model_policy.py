@@ -89,10 +89,16 @@ KIRO_CATALOG: tuple[ModelSpec, ...] = (
 )
 
 # Cline CLI Catalog.
-# Live verified models from Cline CLI and providers.json:
+# Free-tier only. The `cline` provider spends Cline Credits ($0.00 on this account)
+# and OpenRouter's `:free` slugs now answer "This model is unavailable for free", so
+# `deepseek/*` and friends all resolve to a billing route. The Gemini provider is the
+# one verified free path; see agents/cline/free_routing.py, which pins the provider
+# and coerces any off-list model before the CLI is invoked.
+# `auto` is deliberately excluded: it delegates model choice back to Cline's mutable
+# persisted state, which is exactly how a paid model gets selected silently.
 CLINE_CATALOG: tuple[ModelSpec, ...] = (
-    ModelSpec("deepseek/deepseek-v4-flash", AgentTarget.CLINE, ModelTier.BALANCED, 3, 1_048_576, Specialization.GENERAL, False),
-    ModelSpec("auto", AgentTarget.CLINE, ModelTier.AUTO, 3, 0, Specialization.GENERAL, False),
+    ModelSpec("gemini-3.6-flash", AgentTarget.CLINE, ModelTier.FAST, 2, 1_048_576, Specialization.GENERAL, False),
+    ModelSpec("gemini-3.6-flash-lite", AgentTarget.CLINE, ModelTier.FAST, 1, 1_048_576, Specialization.GENERAL, False),
 )
 
 # Antigravity Account 1 Catalog.

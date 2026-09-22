@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agents.cline import free_routing
 from agents.base.adapter import (
     UNKNOWN_MODEL,
     AgentAdapter,
@@ -39,14 +40,16 @@ class ClineAdapter(AgentAdapter):
         Capability.COMPONENT_REFACTORING,
         Capability.CODE_REVIEW,
     })
-    DEFAULT_MODELS = ("auto",)
+    #: "auto" is deliberately absent: it hands model choice back to Cline's
+    #: persisted state, which is the paid-drift path free_routing guards against.
+    DEFAULT_MODELS = free_routing.FREE_MODELS
 
     def __init__(
         self,
         executable: str = "cline",
         capabilities: frozenset[Capability] | None = None,
         models: tuple[str, ...] | None = None,
-        default_model: str = "auto",
+        default_model: str = free_routing.DEFAULT_FREE_MODEL,
         agent_id: str = "cline",
         account_id: str = "cli",
         config_dir: str | Path | None = None,
@@ -68,7 +71,21 @@ class ClineAdapter(AgentAdapter):
 
     @property
     def provider(self) -> str:
+        # Agent identity, per the base-class contract ("antigravity", "kiro",
+        # "cline"). Dispatch keys off this (see providers/adapters/bridge.py), so it
+        # must NOT be changed to the upstream route. Use `routing_provider` for the
+        # provider requests are actually sent to.
         return "cline"
+
+    @property
+    def routing_provider(self) -> str:
+        """The upstream provider requests are actually sent to via `-P`.
+
+        Distinct from `provider`, which is this agent's identity. Cline's own
+        provider bills Cline Credits, so execution is pinned to the free Gemini
+        route; cost attribution should read this, not `provider`.
+        """
+        return free_routing.FREE_PROVIDER if free_routing.enforcement_enabled() else "cline"
 
     @property
     def account_id(self) -> str:
@@ -104,7 +121,11 @@ class ClineAdapter(AgentAdapter):
                             models.insert(0, m)
                 except Exception:
                     pass
-        return tuple(models)
+        # Models discovered from providers.json are hoisted to the front above, which
+        # made whatever a provider happened to hold the *preferred* choice. When a
+        # paid model was parked there, that silently became the default. Filtering
+        # last keeps discovery useful while refusing to offer a billed model.
+        return free_routing.free_models_only(models)
 
     @property
     def models(self) -> tuple[str, ...]:
@@ -246,8 +267,18 @@ class ClineAdapter(AgentAdapter):
             cmd.extend(["--config", str(self._config_dir)])
         if self._data_dir:
             cmd.extend(["--data-dir", str(self._data_dir)])
-        target_model = model or self._default_model
-        if target_model and target_model != "auto":
+        # Correct any drift in Cline's persisted provider/model before running. This
+        # state is rewritten by any interactive session and was observed back on the
+        # paid `cline` provider, so it is re-pinned per run rather than assumed.
+        free_routing.pin_free_route(self._config_dir, self._data_dir)
+        # The provider is pinned explicitly. Without -P, Cline uses its persisted
+        # effective provider, which defaults to `cline` and bills Cline Credits.
+        if free_routing.enforcement_enabled():
+            cmd.extend(["-P", free_routing.FREE_PROVIDER])
+        # A concrete model is always sent. "auto" and any paid id are coerced,
+        # because omitting -m hands the choice back to the drifted persisted state.
+        target_model = free_routing.coerce_model(model or self._default_model)
+        if target_model:
             cmd.extend(["-m", target_model])
         if opts.get("session_id_native"):
             cmd.extend(["--id", str(opts["session_id_native"])])

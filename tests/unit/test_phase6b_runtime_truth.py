@@ -106,20 +106,29 @@ class TestPhase6BExecutionResultContract(unittest.TestCase):
         # BUG-005: cline accounts are registered individually.
         cline = registry.get_adapter("cline-account-1")
         self.assertIsNotNone(cline)
-        self.assertIn("deepseek/deepseek-v4-flash", cline.models)
-        self.assertIn("auto", cline.models)
+        # `deepseek/deepseek-v4-flash` and `auto` were previously asserted here as
+        # Cline's free models. Neither is free: on the `cline` provider deepseek
+        # spends Cline Credits ($0.00 on this account) and OpenRouter's `:free`
+        # slugs now answer "This model is unavailable for free", while `auto`
+        # delegates the choice back to Cline's mutable persisted state. The adapter
+        # now offers only the verified free Gemini route.
+        from agents.cline import free_routing
 
-        # Check config/providers.json capabilities representation
+        self.assertTrue(cline.models, "cline must advertise at least one model")
+        for model_id in cline.models:
+            self.assertTrue(
+                free_routing.is_free_model(model_id),
+                f"cline advertises non-free model {model_id!r}",
+            )
+
+        # config/providers.json still lists paid ids (anthropic/claude-fable-5.1,
+        # z-ai/glm-5.3-flash) under cline.model_capabilities, some flagged
+        # billing="free". That stale data is a separate fix; what matters for cost is
+        # that the adapter refuses to *offer* them regardless of what the file says.
         providers_data = json.loads(Path("config/providers.json").read_text(encoding="utf-8"))
-        cline_caps = providers_data["providers"]["cline"]["model_capabilities"]
-        model_ids = [m["id"] for m in cline_caps]
-        self.assertIn("deepseek/deepseek-v4-flash", model_ids)
-
-        # Check billing is free
-        for m in cline_caps:
-            if m["id"] == "deepseek/deepseek-v4-flash":
-                self.assertEqual(m["availability"], "free")
-                self.assertEqual(m["billing"], "free")
+        declared = [m["id"] for m in providers_data["providers"]["cline"]["model_capabilities"]]
+        leaked = [m for m in declared if m in cline.models and not free_routing.is_free_model(m)]
+        self.assertEqual(leaked, [], f"paid declared models reached the adapter: {leaked}")
 
 
 class TestPhase6BRuntimeReconciliation(unittest.TestCase):
