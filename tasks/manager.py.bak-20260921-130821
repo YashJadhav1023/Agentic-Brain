@@ -238,13 +238,9 @@ class TaskManager:
         if self._include_swarm:
             swarm_dir = Path.home() / "agentic-brain" / "swarm" / "tasks"
             if swarm_dir.is_dir():
-                # Folder names are the on-disk names used by scripts/brain/swarm.py,
-                # which writes "in-progress" with a hyphen. An underscore here
-                # silently matched no directory, so running swarm tasks were
-                # invisible to the dashboard.
                 status_map = {
                     "pending": TaskStatus.READY,
-                    "in-progress": TaskStatus.RUNNING,
+                    "in_progress": TaskStatus.RUNNING,
                     "completed": TaskStatus.COMPLETED,
                     "escalated": TaskStatus.FAILED,
                 }
@@ -417,18 +413,16 @@ class TaskManager:
         if self._include_swarm:
             swarm_dir = Path.home() / "agentic-brain" / "swarm" / "tasks"
             if swarm_dir.is_dir():
-                # "in-progress" with a hyphen is the directory name that
-                # scripts/brain/swarm.py actually writes; see the note above.
                 status_folder_map = {
                     "pending": TaskStatus.READY,
-                    "in-progress": TaskStatus.RUNNING,
+                    "in_progress": TaskStatus.RUNNING,
                     "completed": TaskStatus.COMPLETED,
                     "escalated": TaskStatus.FAILED,
                 }
                 folders = (
                     [k for k, v in status_folder_map.items() if v == status]
                     if status
-                    else ["pending", "in-progress", "completed", "escalated"]
+                    else ["pending", "in_progress", "completed", "escalated"]
                 )
                 for folder in folders:
                     folder_path = swarm_dir / folder

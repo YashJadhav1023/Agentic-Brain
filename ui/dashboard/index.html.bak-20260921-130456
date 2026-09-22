@@ -637,7 +637,7 @@
             <span class="px-2.5 py-1 rounded-full text-xs font-mono bg-indigo-950 text-indigo-300 border border-indigo-800">ZERO CREDENTIAL LEAKAGE</span>
           </div>
           <div id="lifecycle-feed" class="max-h-48 overflow-y-auto space-y-1.5 font-mono text-xs">
-            <div data-lifecycle-placeholder class="text-[#71717A] text-center py-3 font-sans text-xs">Waiting for account lifecycle events… trigger the Add Account wizard to monitor flow.</div>
+            <div class="text-[#71717A] text-center py-3 font-sans text-xs">Waiting for account lifecycle events… trigger the Add Account wizard to monitor flow.</div>
           </div>
         </div>
 
@@ -2088,14 +2088,7 @@
         const eType = rawType;
         const eTypeUpper = rawType.toUpperCase();
         if (eTypeUpper.startsWith('ACCOUNT') || eTypeUpper.startsWith('AGENT') || eTypeUpper.startsWith('AUTH')) {
-          // Isolated on purpose: the lifecycle feed is cosmetic, but it used to
-          // run before debouncedRefreshData and a throw here silently stopped
-          // every live data update. Never let a render nicety gate the refresh.
-          try {
-            appendLifecycleFeed(evt);
-          } catch (feedErr) {
-            console.error('appendLifecycleFeed failed (feed only, refresh continues):', feedErr);
-          }
+          appendLifecycleFeed(evt);
         }
         if (
           eTypeUpper.startsWith('TASK') ||
@@ -2145,14 +2138,7 @@
     function appendLifecycleFeed(evt) {
       const feed = document.getElementById('lifecycle-feed');
       if (!feed) return;
-      // Match the placeholder by data attribute, not by its Tailwind colour
-      // class. `.text-[#71717A]` is not a valid CSS selector — the `[#71717A]`
-      // part parses as an attribute selector with an illegal name, so
-      // querySelector threw a SyntaxError on every lifecycle event. Because the
-      // server emits AUTH_SUCCESS on every authenticated request, that throw
-      // fired constantly and aborted handleIncomingEvent before it could call
-      // debouncedRefreshData, which is what froze the whole dashboard.
-      const placeholder = feed.querySelector('[data-lifecycle-placeholder]');
+      const placeholder = feed.querySelector('.text-[#71717A]');
       if (placeholder) placeholder.remove();
 
       const line = document.createElement('div');

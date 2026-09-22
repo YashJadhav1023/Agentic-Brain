@@ -267,6 +267,10 @@ class SecretRedactor:
             "credential_ref",
             "authentication_type",
             "auth_type",
+            "auth_method",
+            "login_method",
+            "sso_method",
+            "authMethod",
         }
     )
     SECRET_VALUE_PATTERNS = [

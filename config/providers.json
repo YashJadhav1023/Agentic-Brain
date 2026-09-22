@@ -167,6 +167,50 @@
             "dangerously_skip_permissions": true,
             "default_timeout_seconds": 300
           }
+        },
+        "antigravity-account-2078": {
+          "account_id": "account-2078",
+          "agent_id": "antigravity-account-2078",
+          "display_name": "antigravity-account-2078",
+          "description": "Antigravity account (yshj0707@gmail.com)",
+          "priority": 10,
+          "enabled": true,
+          "data_dir": "antigravity-account-2078",
+          "models": [
+            "gemini-3.8-flash-medium",
+            "gemini-3.7-flash-high",
+            "gemini-3.7-flash-medium",
+            "gemini-3.1-pro-high",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6-thinking"
+          ],
+          "default_model": "gemini-3.8-flash-medium",
+          "capabilities": [
+            "architecture",
+            "deep-reasoning",
+            "documentation",
+            "governance",
+            "protocol-design"
+          ],
+          "execution": {
+            "command": "~/.gemini/bin/agy",
+            "app_data_dir": "antigravity-account-2078",
+            "output_format": "json",
+            "dangerously_skip_permissions": false,
+            "default_timeout_seconds": 300
+          }
+        },
+        "antigravity-account-4": {
+          "account_id": "Antigravity Worker 2078",
+          "agent_id": "antigravity-account-4",
+          "display_name": "Antigravity Worker 2078",
+          "credential_reference": "",
+          "authentication_type": "api_key",
+          "enabled": true,
+          "priority": 10,
+          "models": [],
+          "capabilities": [],
+          "concurrency_limit": 2
         }
       }
     },

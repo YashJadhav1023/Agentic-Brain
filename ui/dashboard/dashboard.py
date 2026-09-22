@@ -121,7 +121,13 @@ def _config_watcher_loop() -> None:
 
 threading.Thread(target=_config_watcher_loop, daemon=True, name="mc-config-watcher").start()
 
-task_manager = TaskManager(root_tasks_dir=PROJECT_ROOT / "tasks")
+# include_swarm must be passed explicitly. TaskManager defaults it to
+# `root_tasks_dir is None`, so supplying an explicit root silently excluded the
+# shared-brain swarm pool at ~/agentic-brain/swarm/tasks. Every task dispatched
+# with `brain swarm dispatch` was therefore missing from this dashboard, even
+# though the SSE watcher was already watching that same directory for live
+# events — the Kanban received refresh signals for tasks it could never list.
+task_manager = TaskManager(root_tasks_dir=PROJECT_ROOT / "tasks", include_swarm=True)
 handoff_manager = HandoffManager(root_dir=PROJECT_ROOT / "handoffs")
 event_bus = EventBus(log_path=PROJECT_ROOT / "runtime" / "logs" / "events.jsonl")
 memory_store = MemoryStore(db_path=PROJECT_ROOT / "memory" / "store" / "shared_memory.db")
@@ -806,7 +812,8 @@ class WizardManager:
         sess.step = "select_auth"
 
     def launch_login(self, sess: WizardSession, redirect_origin: str = "http://127.0.0.1:3333") -> dict[str, Any]:
-        """Prepare isolated environment and return the official Google OAuth authorization URL."""
+        """Prepare isolated environment and return provider authorization or portal URL."""
+        origin = redirect_origin.rstrip("/")
         if sess.provider_id == "antigravity":
             mgr = AntigravityAuthManager()
             data_dir, profile_dir = mgr.create_isolated_profile(sess.account_id, sess.config.get("app_data_dir"))
@@ -814,7 +821,7 @@ class WizardManager:
                 sess.profile_dirs.append(str(profile_dir))
 
             email = sess.config.get("email") or (sess.account.metadata.get("email") if sess.account else "")
-            redirect_uri = f"{redirect_origin.rstrip('/')}/callback"
+            redirect_uri = f"{origin}/callback"
             client_id, _ = _get_antigravity_oauth_credentials()
             params = {
                 "client_id": client_id,
@@ -823,10 +830,21 @@ class WizardManager:
                 "scope": " ".join(ANTIGRAVITY_OAUTH_SCOPES),
                 "state": sess.wizard_id,
                 "access_type": "offline",
-                "prompt": "consent",
+                # `select_account` is what makes Google show the account chooser.
+                # With `consent` alone Google silently reuses whichever session the
+                # browser already holds, so every "add Antigravity account" landed
+                # on the same fixed Google account and a second account could not
+                # be registered at all. `consent` is kept so a refresh token is
+                # still issued for the newly chosen account.
+                "prompt": "select_account consent",
             }
-            if email:
-                params["login_hint"] = email
+            # Only hint an address the operator explicitly typed for this wizard.
+            # Inheriting it from existing account metadata pre-selected that
+            # account and defeated the chooser, which is the same bug by another
+            # route. The chooser still appears because of `select_account`.
+            explicit_email = (sess.config.get("email") or "").strip()
+            if explicit_email:
+                params["login_hint"] = explicit_email
             auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
 
             res = mgr.launch_auth(sess.account_id, data_dir)
@@ -835,8 +853,76 @@ class WizardManager:
             res["oauth_url"] = auth_url
             res["redirect_uri"] = redirect_uri
             res["email"] = email
+            res["account_id"] = sess.account_id
             return res
-        return {"success": True, "message": f"Direct authentication for {sess.provider_id}", "email": sess.config.get("email", "")}
+
+        elif sess.provider_id == "cline":
+            redirect_uri = f"{origin}/api/oauth/cline/callback"
+            auth_url = (
+                f"https://api.cline.bot/api/v1/auth/authorize?client_type=extension"
+                f"&callback_url={urllib.parse.quote(redirect_uri)}"
+                f"&state={urllib.parse.quote(sess.wizard_id)}"
+                f"&account_id={urllib.parse.quote(sess.account_id)}"
+            )
+            return {
+                "success": True,
+                "provider_id": "cline",
+                "auth_url": auth_url,
+                "login_url": auth_url,
+                "oauth_url": auth_url,
+                "redirect_uri": redirect_uri,
+                "account_id": sess.account_id,
+                "message": "Cline WorkOS OAuth authorization initiated",
+            }
+
+        elif sess.provider_id == "kiro":
+            auth_method = (sess.auth_method or sess.config.get("auth_method") or "idc").lower()
+            start_url = sess.config.get("start_url") or "https://d-906673e6d4.awsapps.com/start"
+            region = sess.config.get("region") or "us-east-1"
+            if auth_method == "idc":
+                login_url = start_url
+            elif auth_method == "google":
+                login_url = "https://profile.aws.amazon.com/"
+            elif auth_method == "github":
+                login_url = "https://github.com/login"
+            elif auth_method == "device_code":
+                login_url = "https://view.awsapps.com/start"
+            else:
+                login_url = start_url
+
+            return {
+                "success": True,
+                "provider_id": "kiro",
+                "auth_method": auth_method,
+                "start_url": start_url,
+                "region": region,
+                "login_url": login_url,
+                "auth_url": login_url,
+                "oauth_url": login_url,
+                "account_id": sess.account_id,
+                "message": f"Kiro {auth_method} login initiated",
+            }
+
+        portal_urls = {
+            "openai": "https://platform.openai.com/api-keys",
+            "anthropic": "https://console.anthropic.com/settings/keys",
+            "gemini": "https://aistudio.google.com/app/apikey",
+            "groq": "https://console.groq.com/keys",
+            "openrouter": "https://openrouter.ai/keys",
+            "mistral": "https://console.mistral.ai/api-keys",
+            "deepseek": "https://platform.deepseek.com/api_keys",
+        }
+        portal_url = portal_urls.get(sess.provider_id, "")
+        return {
+            "success": True,
+            "provider_id": sess.provider_id,
+            "message": f"Direct authentication for {sess.provider_id}",
+            "login_url": portal_url,
+            "auth_url": portal_url,
+            "portal_url": portal_url,
+            "email": sess.config.get("email", ""),
+            "account_id": sess.account_id,
+        }
 
     def check_auth_status(self, sess: WizardSession) -> dict[str, Any]:
         """Check whether local token file exists and is non-empty."""
@@ -1708,6 +1794,10 @@ def validate_host_binding(host: str) -> str:
 
 PUBLIC_GET_PATHS = frozenset({
     "/",
+    # Browsers request /favicon.ico unconditionally and without the Authorization
+    # header, so gating it only produced a 401 console error on every page load.
+    # It carries no data.
+    "/favicon.ico",
     "/callback",
     "/api/health",
     "/api/status",
@@ -2134,7 +2224,15 @@ class MissionControlHandler(BaseHTTPRequestHandler):
 
         tasks = task_manager.list_tasks()
         active_ids = set(orchestrator.swarm.get_active_task_ids())
-        active_tasks = [t.to_dict() for t in tasks if t.status == TaskStatus.RUNNING and t.task_id in active_ids]
+        # Count every RUNNING task, not only those owned by this process's swarm
+        # pool. Tasks dispatched by `brain swarm dispatch` execute in a separate
+        # runner, so they are never in get_active_task_ids() — intersecting on it
+        # pinned "Task Pipeline" to 0 Running while the Kanban correctly showed
+        # them, which read as the dashboard being broken.
+        running = [t for t in tasks if t.status == TaskStatus.RUNNING]
+        active_tasks = [t.to_dict() for t in running]
+        # Retained as a distinct signal: which running tasks this process owns.
+        in_process_tasks = [t.to_dict() for t in running if t.task_id in active_ids]
         completed_tasks = [t.to_dict() for t in tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.VERIFICATION_COMPLETE)]
         ready_tasks = [t.to_dict() for t in tasks if t.status in (TaskStatus.READY, TaskStatus.BACKLOG)]
         failed_tasks = [t.to_dict() for t in tasks if t.status in (TaskStatus.FAILED, TaskStatus.DEPTH_LIMIT_REACHED, TaskStatus.BUDGET_EXHAUSTED, TaskStatus.CANCELLED)]
@@ -2204,6 +2302,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             "status": "RUNNING",
             "tasks_count": len(tasks),
             "running_tasks": len(active_tasks),
+            "in_process_running_tasks": len(in_process_tasks),
             "completed_tasks": len(completed_tasks),
             "ready_tasks": len(ready_tasks),
             "failed_tasks": len(failed_tasks),
@@ -3265,7 +3364,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 account_type=payload.get("account_type", "api"),
                 authentication_type=auth_type,
                 credential_reference=cred_ref,
-                status=AccountStatus.ONLINE if (cred_ref or auth_type == AuthenticationType.UNAUTHENTICATED) else AccountStatus.NOT_CONFIGURED,
+                status=AccountStatus.ONLINE if (cred_ref or auth_type in (AuthenticationType.UNAUTHENTICATED, AuthenticationType.LOCAL, AuthenticationType.OAUTH)) else AccountStatus.NOT_CONFIGURED,
                 enabled=True,
                 priority=int(payload.get("priority", 10)),
                 models=models_list,
@@ -3592,8 +3691,12 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 self._serve_json({"error": "provider_id and a valid account_id are required"}, status=400)
                 return
             if registry.account_registry.get_account(account_id):
-                self._serve_json({"error": f"Account '{account_id}' already exists"}, status=409)
-                return
+                # OmniRoute multi-account parity: auto-increment suffix if account already exists
+                base_id = re.sub(r"-\d+$", "", account_id)
+                n = 1
+                while registry.account_registry.get_account(f"{base_id}-{n}"):
+                    n += 1
+                account_id = f"{base_id}-{n}"
             sess = wizard_manager.start(provider_id, account_id)
             self._serve_json({"status": "started", "wizard": sess.to_dict()}, status=201)
 
@@ -3934,6 +4037,7 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
         if user_email:
             token_data_to_store["email"] = user_email
 
+        token_file = profile_dir / "token.json"
         token_file.write_text(json.dumps(token_data_to_store), encoding="utf-8")
         try:
             token_file.chmod(0o600)
@@ -4292,28 +4396,70 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
 </html>""", status=200)
 
     def _handle_kiro_auto_import(self) -> None:
-        """Auto-detect Kiro credentials from ~/.aws/sso/cache or ~/.local/share/kiro-cli.
+        """Auto-detect Kiro credentials from kiro-cli runtime, ~/.aws/sso/cache, or ~/.local/share/kiro-cli.
 
-        Matches OmniRoute auto-import parity: inspects active SSO cache files and
-        kiro-cli SQLite store to detect cached Builder ID, IAM Identity Center (IdC),
-        or external IdP tokens.
+        Matches OmniRoute auto-import parity: tests active CLI authentication,
+        inspects active SSO cache files, and reads SQLite sessions to link
+        IAM Identity Center (IdC), Builder ID, or local sessions without friction.
         """
         sso_cache_dir = Path.home() / ".aws" / "sso" / "cache"
         kiro_data_db = Path.home() / ".local" / "share" / "kiro-cli" / "data.sqlite3"
 
-        res = {
+        res: dict[str, Any] = {
             "found": False,
+            "runtime_active": False,
             "source": "",
+            "login_method": "idc",
+            "auth_method": "idc",
             "authMethod": "idc",
             "region": "us-east-1",
-            "startUrl": "",
+            "start_url": "https://d-906673e6d4.awsapps.com/start",
+            "startUrl": "https://d-906673e6d4.awsapps.com/start",
+            "email": "",
+            "profile": "",
+            "has_session": False,
             "hasRefreshToken": False,
             "hasAccessToken": False,
-            "expiresAt": "",
+            "expires_at": "",
             "message": "",
         }
 
-        # 1. Probe ~/.aws/sso/cache
+        # 1. Live probe: kiro-cli whoami
+        kiro_bin = shutil.which("kiro-cli") or str(Path.home() / ".local" / "bin" / "kiro-cli")
+        if Path(kiro_bin).exists():
+            try:
+                proc = subprocess.run(
+                    [kiro_bin, "whoami"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                if proc.returncode == 0 and "Logged in" in (proc.stdout or ""):
+                    out = proc.stdout
+                    res["found"] = True
+                    res["runtime_active"] = True
+                    res["has_session"] = True
+                    res["hasRefreshToken"] = True
+                    res["hasAccessToken"] = True
+                    res["source"] = "kiro-cli runtime"
+                    # Parse email
+                    m_email = re.search(r"Email:\s*([^\s\n\r]+)", out, re.I)
+                    if m_email:
+                        res["email"] = m_email.group(1).strip()
+                    # Parse start URL
+                    m_url = re.search(r"\((https?://[^\s\)]+)\)", out)
+                    if m_url:
+                        res["start_url"] = m_url.group(1).strip()
+                        res["startUrl"] = res["start_url"]
+                    # Parse Profile
+                    m_prof = re.search(r"Profile:\s*\n?\s*([^\s\n\r]+)", out, re.I)
+                    if m_prof:
+                        res["profile"] = m_prof.group(1).strip()
+                    res["message"] = f"Logged in via {res['email'] or 'IAM Identity Center'} ({res['profile'] or 'active'})"
+            except Exception as e:
+                logger.debug(f"kiro-cli whoami probe error: {e}")
+
+        # 2. Probe ~/.aws/sso/cache
         if sso_cache_dir.exists() and sso_cache_dir.is_dir():
             candidate_files = []
             pref = sso_cache_dir / "kiro-auth-token.json"
@@ -4333,19 +4479,28 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
                     acc_token = data.get("accessToken") or ""
                     if ref_token or acc_token:
                         res["found"] = True
-                        res["source"] = cf.name
-                        res["authMethod"] = data.get("authMethod") or "IdC"
-                        res["region"] = data.get("region") or "us-east-1"
-                        res["startUrl"] = data.get("startUrl") or ""
+                        res["has_session"] = True
                         res["hasRefreshToken"] = bool(ref_token)
                         res["hasAccessToken"] = bool(acc_token)
-                        res["expiresAt"] = data.get("expiresAt") or ""
-                        res["message"] = f"Detected cached {res['authMethod']} session ({res['region']}) in {cf.name}"
+                        if not res["source"]:
+                            res["source"] = cf.name
+                        m_val = data.get("authMethod") or "IdC"
+                        res["login_method"] = m_val
+                        res["auth_method"] = m_val
+                        res["authMethod"] = m_val
+                        res["region"] = data.get("region") or res["region"]
+                        s_url = data.get("startUrl") or ""
+                        if s_url:
+                            res["start_url"] = s_url
+                            res["startUrl"] = s_url
+                        res["expires_at"] = data.get("expiresAt") or ""
+                        if not res["message"]:
+                            res["message"] = f"Detected cached {res['login_method']} session ({res['region']}) in {cf.name}"
                         break
                 except Exception:
                     pass
 
-        # 2. Probe ~/.local/share/kiro-cli/data.sqlite3 if not found in SSO cache
+        # 3. Probe ~/.local/share/kiro-cli/data.sqlite3 if not found in SSO cache
         if not res["found"] and kiro_data_db.exists():
             try:
                 import sqlite3
@@ -4359,12 +4514,15 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
                             t_data = json.loads(row[0])
                             if t_data.get("refresh_token") or t_data.get("access_token"):
                                 res["found"] = True
-                                res["source"] = "kiro-cli SQLite"
-                                res["authMethod"] = "local_session"
-                                res["region"] = t_data.get("region") or "us-east-1"
+                                res["has_session"] = True
                                 res["hasRefreshToken"] = bool(t_data.get("refresh_token"))
                                 res["hasAccessToken"] = bool(t_data.get("access_token"))
-                                res["expiresAt"] = t_data.get("expires_at") or ""
+                                res["source"] = "kiro-cli SQLite"
+                                res["login_method"] = "local_session"
+                                res["auth_method"] = "local_session"
+                                res["authMethod"] = "local_session"
+                                res["region"] = t_data.get("region") or res["region"]
+                                res["expires_at"] = t_data.get("expires_at") or ""
                                 res["message"] = f"Detected Kiro SQLite session ({res['region']})"
                                 break
                     except Exception:
