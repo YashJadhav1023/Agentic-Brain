@@ -15,6 +15,20 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+def _workspace_root() -> str:
+    """Root to search for project docs/steering.
+
+    Defaults to the current working directory so a fresh clone works anywhere;
+    previously this was hardcoded to a single developer's directory layout.
+    """
+    return os.environ.get("BRAIN_WORKSPACE_ROOT") or os.getcwd()
+
+
+def _workspace_name() -> str:
+    """Name of the workspace root, used as the project/organization label."""
+    return os.path.basename(os.path.normpath(_workspace_root())) or "workspace"
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,7 +105,7 @@ class SteeringRegistry:
 
     def __init__(self, search_roots: Optional[List[str]] = None) -> None:
         self.search_roots = search_roots or [
-            os.path.expanduser("~/YashDevops"),
+            _workspace_root(),
             os.path.expanduser("."),
         ]
         self._documents: Dict[str, SteeringDocument] = {}
@@ -139,7 +153,7 @@ class SteeringRegistry:
         # Determine scope
         p_str = str(path.resolve())
         fname = path.name.lower()
-        if "global" in p_str or "/home/setoo/.config/" in p_str:
+        if "global" in p_str or "~/.config/" in p_str:
             scope = SteeringScope.GLOBAL
         elif "agentic_os" in p_str and fname == "agents.md":
             scope = SteeringScope.ORGANIZATION
@@ -159,8 +173,8 @@ class SteeringRegistry:
             if part in ("Agentic_shared_memory", "Agentic_os", "Neo-check", "Support_ticket", "docs"):
                 project_name = part
                 break
-            elif part == "YashDevops":
-                project_name = "YashDevops"
+            elif part == _workspace_name():
+                project_name = _workspace_name()
                 break
 
         # Extract rules: lines starting with '-', '*', or numbers that express directives (MUST, NEVER, DO NOT, ALWAYS, PREFER)

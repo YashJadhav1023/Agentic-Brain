@@ -11,8 +11,8 @@ real capacity.
 Verified empirically on 2026-09-22 against the real CLI:
 
 * `DBUS_SESSION_BUS_ADDRESS=/dev/null` (a bogus *value*) shields correctly —
-  profile `antigravity-account-2078` authenticated as its own `yshj0707@gmail.com`
-  rather than the signed-in `anitigravity590@gmail.com`.
+  profile `antigravity-account-2078` authenticated as its own account identity
+  rather than the signed-in account held in the OS keyring.
 * **Unsetting** the variable does NOT shield. The D-Bus client reconstructs the
   session bus address from `XDG_RUNTIME_DIR`, so the keyring is reached anyway and
   the profile silently falls back to the signed-in identity.

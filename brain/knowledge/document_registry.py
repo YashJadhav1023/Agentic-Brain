@@ -16,6 +16,20 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+def _workspace_root() -> str:
+    """Root to search for project docs/steering.
+
+    Defaults to the current working directory so a fresh clone works anywhere;
+    previously this was hardcoded to a single developer's directory layout.
+    """
+    return os.environ.get("BRAIN_WORKSPACE_ROOT") or os.getcwd()
+
+
+def _workspace_name() -> str:
+    """Name of the workspace root, used as the project/organization label."""
+    return os.path.basename(os.path.normpath(_workspace_root())) or "workspace"
+
+
 logger = logging.getLogger(__name__)
 
 # Supported document extensions
@@ -65,9 +79,8 @@ class DocumentRegistry:
 
     def __init__(self, knowledge_roots: Optional[List[str]] = None) -> None:
         self.knowledge_roots = knowledge_roots or [
-            os.path.expanduser("~/YashDevops/Agentic_shared_memory/docs"),
-            os.path.expanduser("~/YashDevops/docs"),
-            os.path.expanduser("~/YashDevops/Documentation of Assinged Tasks"),
+            os.path.join(_workspace_root(), "docs"),
+            os.path.join(_workspace_root(), "Documentation"),
         ]
         self._documents: Dict[str, DocumentMetadata] = {}
 
@@ -152,7 +165,7 @@ class DocumentRegistry:
 
         # Determine project
         parts = path.parts
-        project = "YashDevops"
+        project = _workspace_name()
         for part in reversed(parts[:-1]):
             if part in ("Agentic_shared_memory", "Agentic_os", "Neo-check", "Support_ticket", "docs"):
                 project = part
@@ -178,7 +191,7 @@ class DocumentRegistry:
             word_count=words,
             content_hash=content_hash,
             modified_time=stat.st_mtime,
-            scope="project" if project != "YashDevops" else "organization",
+            scope="project" if project != _workspace_name() else "organization",
             trust_level="high"
         )
 

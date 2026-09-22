@@ -39,7 +39,7 @@ class RepositoryRegistry:
 
     def __init__(self, search_roots: Optional[List[str]] = None) -> None:
         self.search_roots = search_roots or [
-            os.path.expanduser("~/YashDevops"),
+            os.environ.get("BRAIN_REPO_ROOT") or os.getcwd(),
             os.path.expanduser("."),
         ]
         self._repos: Dict[str, RepositoryMetadata] = {}

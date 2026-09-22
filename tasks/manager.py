@@ -10,8 +10,16 @@ import json
 import uuid
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
+import os
 from pathlib import Path
 from typing import Any
+
+
+def _brain_dir() -> Path:
+    """Shared-brain store root, relocatable via BRAIN_DIR (see dashboard.brain_dir)."""
+    configured = os.environ.get("BRAIN_DIR")
+    return Path(configured).expanduser() if configured else Path.home() / "agentic-brain"
+
 
 
 class TaskStatus(str, Enum):
@@ -236,7 +244,7 @@ class TaskManager:
 
         # Check shared brain swarm tasks directory
         if self._include_swarm:
-            swarm_dir = Path.home() / "agentic-brain" / "swarm" / "tasks"
+            swarm_dir = _brain_dir() / "swarm" / "tasks"
             if swarm_dir.is_dir():
                 # Folder names are the on-disk names used by scripts/brain/swarm.py,
                 # which writes "in-progress" with a hyphen. An underscore here
@@ -415,7 +423,7 @@ class TaskManager:
 
         # Also incorporate tasks from the shared brain swarm task pool
         if self._include_swarm:
-            swarm_dir = Path.home() / "agentic-brain" / "swarm" / "tasks"
+            swarm_dir = _brain_dir() / "swarm" / "tasks"
             if swarm_dir.is_dir():
                 # "in-progress" with a hyphen is the directory name that
                 # scripts/brain/swarm.py actually writes; see the note above.

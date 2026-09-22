@@ -28,7 +28,7 @@
           "agent_id": "antigravity-account-1",
           "account_id": "account-1",
           "enabled": true,
-          "description": "First Antigravity account (jadhavpc0707@gmail.com); master architect and deep reasoning",
+          "description": "First Antigravity account (user@example.com); master architect and deep reasoning",
           "execution": {
             "command": "~/.gemini/bin/agy",
             "app_data_dir": "antigravity-account-jadhav",
@@ -65,7 +65,7 @@
           "agent_id": "antigravity-account-2",
           "account_id": "account-2",
           "enabled": true,
-          "description": "Second Antigravity account (anitigravity590@gmail.com); multi-file refactoring, component work and code review",
+          "description": "Second Antigravity account (user@example.com); multi-file refactoring, component work and code review",
           "execution": {
             "command": "~/.gemini/bin/agy",
             "app_data_dir": "antigravity-account-3",
@@ -103,7 +103,7 @@
           "agent_id": "antigravity-account-3",
           "account_id": "account-3",
           "enabled": true,
-          "description": "Third Antigravity account (yash.j.devops@gmail.com); autonomous implementation, synthesis and verification",
+          "description": "Third Antigravity account (user@example.com); autonomous implementation, synthesis and verification",
           "execution": {
             "command": "~/.gemini/bin/agy",
             "app_data_dir": "antigravity-account-yash",
@@ -140,7 +140,7 @@
           "account_id": "account-2077",
           "agent_id": "antigravity-account-2077",
           "display_name": "antigravity-account-2077",
-          "description": "Antigravity account (yshj0707@gmail.com)",
+          "description": "Antigravity account (user@example.com)",
           "priority": 10,
           "enabled": true,
           "models": [
@@ -172,7 +172,7 @@
           "account_id": "account-2078",
           "agent_id": "antigravity-account-2078",
           "display_name": "antigravity-account-2078",
-          "description": "Antigravity account (yshj0707@gmail.com)",
+          "description": "Antigravity account (user@example.com)",
           "priority": 10,
           "enabled": true,
           "data_dir": "antigravity-account-2078",

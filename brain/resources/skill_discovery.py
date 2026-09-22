@@ -81,7 +81,7 @@ class SkillDiscoveryEngine:
             os.path.join(".", "skills"),
             os.path.join(home, ".gemini", "antigravity-cli", "builtin", "skills"),
             os.path.join(home, ".gemini", "config", "plugins"),
-            os.path.join(home, "YashDevops", "Agentic_os", ".agents", "skills"),
+            os.path.join(os.environ.get("BRAIN_WORKSPACE_ROOT", os.getcwd()), ".agents", "skills"),
         ]
         return [c for c in candidates if os.path.exists(c)]
 

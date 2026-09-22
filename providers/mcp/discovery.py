@@ -138,8 +138,8 @@ class MCPDiscoveryEngine:
             # 3. VS Code user MCP configuration
             os.path.join(home, ".config", "Code", "User", "mcp.json"),
             # 4. Kiro / Agentic OS configurations
-            os.path.join(home, "YashDevops", "Agentic_os", ".agents", "plugins", "kiro-mcp", "mcp_config.json"),
-            os.path.join(home, "YashDevops", "Agentic_os", ".kiro", "settings", "mcp.json"),
+            os.path.join(os.environ.get("BRAIN_WORKSPACE_ROOT", os.getcwd()), ".agents", "plugins", "kiro-mcp", "mcp_config.json"),
+            os.path.join(os.environ.get("BRAIN_WORKSPACE_ROOT", os.getcwd()), ".kiro", "settings", "mcp.json"),
             os.path.join(home, ".kiro", "settings", "mcp.json"),
             os.path.join(".", ".mcp.json"),
             os.path.join(".", "mcp.json"),

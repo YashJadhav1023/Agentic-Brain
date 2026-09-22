@@ -387,8 +387,15 @@ metadata:
             self.assertIn("antigravity-ide", stat_content)
 
     def test_31_workspace_isolation_agentic_os(self) -> None:
-        """Verifies ~/YashDevops/Agentic_os remains strictly untouched and read-only."""
-        agentic_os_path = Path("/home/setoo/YashDevops/Agentic_os")
+        """Verifies a configured sibling workspace remains untouched and read-only."""
+        # Check the raw value first: Path("") is Path("."), which exists, so building
+        # the Path before testing the variable made this never skip.
+        configured = os.environ.get("BRAIN_SIBLING_WORKSPACE", "").strip()
+        if not configured:
+            self.skipTest("no sibling workspace configured (BRAIN_SIBLING_WORKSPACE)")
+        agentic_os_path = Path(configured).expanduser()
+        if not agentic_os_path.exists():
+            self.skipTest(f"configured sibling workspace does not exist: {agentic_os_path}")
         self.assertTrue(agentic_os_path.exists())
         # Confirm no temporary or ecc files were written to Agentic_os
         self.assertFalse((agentic_os_path / "external").exists())

@@ -77,11 +77,30 @@ class MemoryStore:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    #: Pragmas applied to every connection.
+    #:
+    #: Without these, a plain connect() under the threaded dashboard plus separate
+    #: agent CLI processes hits "database is locked" on concurrent writes and the
+    #: INSERT is lost, because nothing retries. WAL lets readers proceed during a
+    #: write; busy_timeout turns a writer collision into a short wait instead of an
+    #: immediate error. synchronous=NORMAL is durable under WAL for process crashes
+    #: (only a host power loss can lose the tail), which is the right trade for a
+    #: local-first store written on every agent step.
+    _PRAGMAS = (
+        "PRAGMA journal_mode=WAL",
+        "PRAGMA busy_timeout=5000",
+        "PRAGMA synchronous=NORMAL",
+    )
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         """Connection that is always committed and always closed."""
-        conn = sqlite3.connect(self._db_path)
+        # check_same_thread=False is safe here because each call opens and closes its
+        # own connection; it is set explicitly so a threaded caller cannot trip on it.
+        conn = sqlite3.connect(self._db_path, timeout=5.0, check_same_thread=False)
         try:
+            for pragma in self._PRAGMAS:
+                conn.execute(pragma)
             yield conn
             conn.commit()
         finally:

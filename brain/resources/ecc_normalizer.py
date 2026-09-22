@@ -318,9 +318,9 @@ class ECCComponentNormalizer:
 
         candidates = [
             os.path.join(".", "external", "ecc"),
-            os.path.expanduser("~/YashDevops/Agentic_shared_memory/external/ecc"),
+            os.path.join(os.getcwd(), "external", "ecc"),
             "/tmp/ecc_audit",
-            os.path.expanduser("~/YashDevops/Agentic_shared_memory/external/ecc"),
+            os.path.join(os.getcwd(), "external", "ecc"),
         ]
         for c in candidates:
             if os.path.exists(c):

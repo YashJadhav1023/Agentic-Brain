@@ -304,9 +304,6 @@
       <div id="git-badge" class="px-3 py-1.5 rounded-lg bg-[#121212] border border-[#262626] font-mono text-[#D4D4D8] text-xs font-semibold flex items-center gap-2" title="Git Branch">
         <i class="fa-solid fa-code-branch text-xs text-white"></i> main
       </div>
-      <button onclick="triggerExecute()" class="px-4 py-2 bg-white hover:bg-[#E4E4E7] text-black rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-2" title="Execute queued tasks in Swarm">
-        <i class="fa-solid fa-bolt text-xs"></i> <span>Execute Swarm</span>
-      </button>
       <button onclick="triggerContinue()" class="px-4 py-2 bg-[#171717] hover:bg-[#222222] text-white border border-[#2B2B2B] hover:border-[#3F3F46] rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-2" title="Resume from handoff & memory">
         <i class="fa-solid fa-play text-xs"></i> <span>Continue</span>
       </button>
@@ -587,9 +584,6 @@
             <h2 class="text-xl font-bold text-white tracking-tight">Task Lifecycle (Kanban)</h2>
             <p class="text-sm text-[#A1A1AA] mt-1">Real-time state tracking from intake to verification and terminal outcome.</p>
           </div>
-          <button onclick="triggerExecute()" class="px-4 py-2 bg-white hover:bg-[#E4E4E7] text-black font-semibold rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-2">
-            <i class="fa-solid fa-bolt text-xs"></i> Execute Ready Queue
-          </button>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div class="modern-card p-4 space-y-3">
@@ -730,12 +724,11 @@
             <option value="2">2 - Low</option>
             <option value="1">1 - Minimal</option>
           </select>
+          <!-- Options are populated at runtime from /api/agents by
+               populateAgentFilter(). They used to be hardcoded here, so an account or
+               IDE added after this file was written could never appear in the list. -->
           <select id="mem-filter-agent" onchange="loadMemories()" class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3 py-2 text-[#D4D4D8]">
             <option value="">All Agents</option>
-            <option value="cline">Cline</option>
-            <option value="kiro">Kiro</option>
-            <option value="antigravity-account-1">Antigravity 1</option>
-            <option value="antigravity-account-2">Antigravity 2</option>
           </select>
           <button onclick="loadMemories()" class="px-4 py-2 bg-[#181818] hover:bg-[#222222] text-[#FAFAFA] border border-[#2E2E2E] rounded-lg font-medium">Filter</button>
         </div>
@@ -2299,8 +2292,33 @@
         renderAgents(agents);
         renderTasks(tasks);
         renderLiveExecutionWidget(status, tasks);
+
+        // Keep the *visible* section live as well. These loaders previously ran only
+        // on tab switch, so Shared Memory never showed new history and a newly added
+        // account stayed invisible until you navigated away and back. Scoped to the
+        // active tab so the 3s poll does not fetch every endpoint in the app.
+        refreshActiveSection();
       } catch (err) {
         console.error('refreshData error:', err);
+      }
+    }
+
+    // Re-fetch whatever the user is currently looking at. Called from the 3s poll.
+    // Failures are swallowed deliberately: a transient error must not stop the poll
+    // loop, and each loader already reports its own problems.
+    async function refreshActiveSection() {
+      try {
+        if (currentTab === 'memory') {
+          await Promise.all([loadMemories(), loadRetrievalHistory()]);
+        } else if (currentTab === 'mc-accounts') {
+          await loadAccounts();
+        } else if (currentTab === 'mc-providers') {
+          await loadProviders();
+        } else if (currentTab === 'events') {
+          await loadEvents();
+        }
+      } catch (err) {
+        console.debug('refreshActiveSection skipped:', err);
       }
     }
 
@@ -2466,7 +2484,38 @@
       if (cEl) cEl.textContent = `$${(mc.today_cost || 0).toFixed(2)}`;
     }
 
+    // Keep the Shared Memory agent filter in step with the live agent registry.
+    // Preserves the current selection so a refresh mid-filter does not reset the view.
+    function populateAgentFilter(data) {
+      const sel = document.getElementById('mem-filter-agent');
+      if (!sel || !data) return;
+      const ids = Array.isArray(data) ? data.map(a => a && (a.id || a.agent_id)).filter(Boolean)
+                                      : Object.keys(data);
+      // Include per-account entries so a newly registered account is selectable, not
+      // just its parent agent.
+      const options = [];
+      for (const id of ids) {
+        const entry = Array.isArray(data) ? data.find(a => (a.id || a.agent_id) === id) : data[id];
+        options.push({ value: id, label: (entry && (entry.name || entry.label)) || id });
+        const accounts = entry && (entry.accounts || entry.account_ids);
+        if (accounts) {
+          for (const acc of (Array.isArray(accounts) ? accounts : Object.keys(accounts))) {
+            const accId = typeof acc === 'string' ? acc : (acc && (acc.id || acc.account_id));
+            if (accId) options.push({ value: `${id}-${accId}`, label: `${id} / ${accId}` });
+          }
+        }
+      }
+      const desired = JSON.stringify(options);
+      if (sel.dataset.rendered === desired) return;   // avoid clobbering an open dropdown
+      const previous = sel.value;
+      sel.innerHTML = '<option value="">All Agents</option>'
+        + options.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+      if (previous && options.some(o => o.value === previous)) sel.value = previous;
+      sel.dataset.rendered = desired;
+    }
+
     function renderAgents(data) {
+      populateAgentFilter(data);
       const grid = document.getElementById('agents-grid');
       if (!grid) return;
       let agents = [];
@@ -3582,7 +3631,7 @@
         if (isAntigravity) {
           customFields = `
             <label class="block text-slate-400 uppercase text-[10px] font-semibold mb-1 mt-3">Google Account Email (Optional login hint)</label>
-            <input id="wiz-email" type="email" placeholder="e.g. user@gmail.com" value="${wizState.email || ''}" class="w-full bg-slate-950 border border-slate-800 rounded p-2 text-slate-200">
+            <input id="wiz-email" type="email" placeholder="you@example.com" value="${wizState.email || ''}" class="w-full bg-slate-950 border border-slate-800 rounded p-2 text-slate-200">
             <p class="text-[10px] text-slate-500 mt-0.5">Pre-selects your Google account on the login page.</p>
 
             <div class="mt-4 p-4 bg-slate-900 border border-indigo-500/40 rounded-lg space-y-3">
@@ -3618,7 +3667,7 @@
                   </span>
                   <span class="text-xs text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700/70">WorkOS OAuth (Zero-Key)</span>
                 </div>
-                <p class="text-xs text-slate-200 font-mono">Logged in as: <span class="text-indigo-300 font-semibold">jadhavpc0707@gmail.com</span></p>
+                <p class="text-xs text-slate-200 font-mono">Logged in as: <span class="text-indigo-300 font-semibold"><span class="opacity-70">detected from local session</span></span></p>
                 <p class="text-[11px] text-slate-400">Your local Cline WorkOS OAuth session credentials from <code class="text-slate-300">~/.cline/data/settings</code> will be securely copied into this isolated profile. <b>No API key required.</b></p>
                 <div class="text-[10px] text-emerald-400/80 mt-1">🔒 Full filesystem isolation preserved (~/.mission-control/cline/${wizState.account_id}).</div>
               </div>
@@ -3859,7 +3908,7 @@
           authSummary = `
             <div class="bg-slate-950 border border-slate-800 rounded p-3 text-xs space-y-1.5 font-mono">
               <div><span class="text-slate-500">Account ID:</span> <span class="text-slate-200">${wizState.account_id}</span></div>
-              <div><span class="text-slate-500">Session:</span> <span class="text-emerald-400">jadhavpc0707@gmail.com (WorkOS OAuth)</span></div>
+              <div><span class="text-slate-500">Session:</span> <span class="text-emerald-400"><span class="opacity-70">detected from local session</span> (WorkOS OAuth)</span></div>
               <div><span class="text-slate-500">Profile:</span> <span class="text-slate-200">~/.mission-control/cline/${wizState.account_id}</span></div>
             </div>
             <div class="text-[11px] text-slate-400">Click <b>Next</b> to allocate isolated profile and sync WorkOS OAuth credentials (Zero-Key).</div>
@@ -4577,7 +4626,7 @@
                     <i class="fa-solid fa-circle-check text-emerald-400 text-xs"></i> Verify Status
                   </button>
                 </div>
-                <div id="modal-google-status" class="text-[11px] text-[#A1A1AA] font-mono">Session hint: <span class="text-indigo-300 font-semibold">jadhavpc0707@gmail.com</span> (Active Keyring)</div>
+                <div id="modal-google-status" class="text-[11px] text-[#A1A1AA] font-mono">Session hint: <span class="text-indigo-300 font-semibold"><span class="opacity-70">detected from local session</span></span> (Active Keyring)</div>
               </div>
             `;
           } else if (activeAuth === 'profile') {
@@ -4615,7 +4664,7 @@
                   </span>
                   <span class="text-[10px] text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700/70 font-mono">WorkOS OAuth (Zero-Key)</span>
                 </div>
-                <p class="text-[11px] text-[#D4D4D8] font-mono">Logged in as: <span class="text-indigo-300 font-semibold">jadhavpc0707@gmail.com</span></p>
+                <p class="text-[11px] text-[#D4D4D8] font-mono">Logged in as: <span class="text-indigo-300 font-semibold"><span class="opacity-70">detected from local session</span></span></p>
                 <p class="text-[11px] text-[#A1A1AA]">Active credentials from <code class="text-slate-300">~/.cline/data/settings</code> will be linked into this profile. <b>No API key required.</b></p>
                 <div class="flex items-center gap-2 pt-1">
                   <button type="button" onclick="submitAddAccount()" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
@@ -4862,7 +4911,9 @@
 
         const loginRes = await fetchWithAuth('/api/wizard/launch-login', {
           method: 'POST',
-          body: { wizard_id: wizId, email: 'jadhavpc0707@gmail.com' }
+          // Let the backend resolve the address from the user's own local session
+          // rather than sending a hardcoded one.
+          body: { wizard_id: wizId, email: (typeof wizState !== 'undefined' && wizState.email) || '' }
         });
         const loginData = await loginRes.json();
         const authUrl = loginData.login?.login_url || loginData.login?.launch_url || loginData.login?.auth_url || loginData.auth_url || loginData.login_url;
@@ -4922,7 +4973,7 @@
         const d = await res.json();
         const agy = (d.agents || []).find(a => a.id && a.id.startsWith('antigravity'));
         if (agy && (agy.authenticated || agy.status === 'ONLINE' || agy.health === 'HEALTHY')) {
-          if (st) st.innerHTML = '<span class="text-emerald-400 font-bold">✓ Google OAuth Session Active and Verified (jadhavpc0707@gmail.com)</span>';
+          if (st) st.innerHTML = '<span class="text-emerald-400 font-bold">✓ Google OAuth Session Active and Verified (<span class="opacity-70">detected from local session</span>)</span>';
           showToast('Google authentication verified!', 'success');
         } else {
           if (st) st.innerHTML = '<span class="text-amber-400">Google token ready. Click "Save Account" to register.</span>';
@@ -5145,8 +5196,8 @@
         if (tierCompat) tierCompat.value = 'cli';
         if (keyLabel) keyLabel.textContent = 'Cline Account Config Directory';
         if (keyInput) {
-          keyInput.placeholder = `/home/setoo/.mission-control/cline/cline-account-${nextNum}/config`;
-          keyInput.value = `/home/setoo/.mission-control/cline/cline-account-${nextNum}/config`;
+          keyInput.placeholder = `~/.mission-control/cline/cline-account-${nextNum}/config`;
+          keyInput.value = `~/.mission-control/cline/cline-account-${nextNum}/config`;
         }
         if (idInput) {
           idInput.value = `cline-account-${nextNum}`;
@@ -5395,16 +5446,6 @@
       document.getElementById('routing-inspect-modal').classList.add('hidden');
     }
 
-    async function triggerExecute() {
-      showToast('Executing ready task queue...', 'info');
-      try {
-        const res = await fetchWithAuth('/api/task/execute', { method: 'POST', body: {} });
-        if (res.ok) {
-          showToast('Swarm execution initiated', 'success');
-          refreshData();
-        }
-      } catch (e) { showToast('Execution error', 'error'); }
-    }
     async function triggerContinue() {
       showToast('Continuing swarm from handoff memory...', 'info');
       try {

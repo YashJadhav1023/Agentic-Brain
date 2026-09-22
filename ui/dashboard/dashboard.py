@@ -74,6 +74,21 @@ from tasks.manager import Task, TaskManager, TaskPriority, TaskStatus
 
 STATIC_DIR = (Path(__file__).resolve().parent / "static").resolve()
 PORT = int(os.environ.get("BRAIN_PORT", "3333"))
+#: Shown when an account's email cannot be read from the user's own local agent
+#: session. Deliberately not a real address.
+UNKNOWN_ACCOUNT_EMAIL = "unknown@localhost"
+
+def brain_dir() -> Path:
+    """Root of the shared-brain store on THIS machine.
+
+    Honours BRAIN_DIR so a user can relocate their own data; defaults to
+    ~/agentic-brain, which is the path the project has always used. Previously
+    BRAIN_DIR was documented in .env.example but read by no code, and the documented
+    value (~/.agentic-brain) did not match the hardcoded one.
+    """
+    return Path(os.environ.get("BRAIN_DIR", "")).expanduser() if os.environ.get("BRAIN_DIR") \
+        else Path.home() / "agentic-brain"
+
 
 
 def sanitize_account_id(account_id: str) -> str:
@@ -193,7 +208,7 @@ def get_cached_provider_health(p: Any, ttl: float = 60.0) -> Any:
 
 def _swarm_task_watcher_loop() -> None:
     """Watches ~/agentic-brain/swarm/tasks/ and emits live SSE events to dashboard clients."""
-    swarm_dir = Path.home() / "agentic-brain" / "swarm" / "tasks"
+    swarm_dir = brain_dir() / "swarm" / "tasks"
     global _last_swarm_task_mtimes
 
     # Prime existing files so we only notify on genuinely new/changed tasks
@@ -635,7 +650,10 @@ class WizardManager:
         if pid == "cline":
             methods: list[dict[str, str]] = []
             local_providers_file = Path.home() / ".cline" / "data" / "settings" / "providers.json"
-            email = "jadhavpc0707@gmail.com"
+            # Resolved from the user's own local Cline session below. A real address
+            # must never be hardcoded here: it shipped one developer's account as the
+            # default identity for every install.
+            email = UNKNOWN_ACCOUNT_EMAIL
             if local_providers_file.exists():
                 try:
                     p_data = json.loads(local_providers_file.read_text(encoding="utf-8"))
@@ -1085,9 +1103,12 @@ class WizardManager:
                         except OSError:
                             pass
                     if sess.account is not None:
-                        sess.account.metadata["email"] = "jadhavpc0707@gmail.com"
+                        sess.account.metadata.setdefault("email", UNKNOWN_ACCOUNT_EMAIL)
                         sess.account.metadata["auth_method"] = "workos_oauth"
-                        sess.account.description = "Cline account (jadhavpc0707@gmail.com - WorkOS OAuth)"
+                        sess.account.description = (
+                            f"Cline account ({sess.account.metadata.get('email') or UNKNOWN_ACCOUNT_EMAIL}"
+                            " - WorkOS OAuth)"
+                        )
             elif pid == "kiro":
                 exe = shutil.which("kiro-cli") or str(Path.home() / ".local" / "bin" / "kiro-cli")
                 auth_method = sess.auth_method or sess.config.get("auth_method") or "local_session"
@@ -1319,7 +1340,7 @@ class WizardManager:
         elif sess.provider_id == "cline":
             config_dir = sess.account.metadata.get("config_dir") or str(Path.home() / ".mission-control" / "cline" / sess.account_id / "config")
             data_dir = sess.account.metadata.get("data_dir") or str(Path.home() / ".mission-control" / "cline" / sess.account_id / "data")
-            email = sess.account.metadata.get("email") or "jadhavpc0707@gmail.com"
+            email = sess.account.metadata.get("email") or UNKNOWN_ACCOUNT_EMAIL
             desc = f"Cline account ({email} - WorkOS OAuth)"
             acct.description = desc
             account_conf = {
@@ -4559,7 +4580,14 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
 
 
 PID_FILE = PROJECT_ROOT / "runtime" / "dashboard.pid"
-PROTECTED_PIDS = frozenset({3809})
+# Processes this dashboard must never signal. Defaults to empty: a literal PID is
+# specific to one machine and PIDs are recycled, so a hardcoded guard is both
+# useless elsewhere and unsafe once the number is reused. Set
+# BRAIN_PROTECTED_PIDS="3809,5854" to protect a local IDE process.
+PROTECTED_PIDS = frozenset(
+    int(pid) for pid in os.environ.get("BRAIN_PROTECTED_PIDS", "").replace(" ", "").split(",")
+    if pid.strip().isdigit()
+)
 
 
 def is_pid_alive(pid: int) -> bool:
@@ -4575,7 +4603,7 @@ def is_pid_alive(pid: int) -> bool:
 
 def is_dashboard_process(pid: int) -> bool:
     """Check if a running PID corresponds to a Mission Control dashboard process."""
-    if pid in PROTECTED_PIDS or pid == 3809:
+    if pid in PROTECTED_PIDS:
         return False
     try:
         cmdline_path = Path(f"/proc/{pid}/cmdline")
@@ -4600,7 +4628,7 @@ def acquire_pid_file(pid_file: Path | None = None) -> None:
         try:
             raw = target_file.read_text(encoding="utf-8").strip()
             existing_pid = int(raw)
-            if existing_pid in PROTECTED_PIDS or existing_pid == 3809:
+            if existing_pid in PROTECTED_PIDS:
                 target_file.unlink(missing_ok=True)
             elif is_pid_alive(existing_pid):
                 if is_dashboard_process(existing_pid):

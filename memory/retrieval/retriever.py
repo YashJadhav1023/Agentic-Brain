@@ -6,12 +6,15 @@ Combines keyword matching, tag overlap, and importance weighting.
 from __future__ import annotations
 
 import datetime
+import logging
 import re
 import sqlite3
 from typing import Any
 
 from events.bus import EventBus, EventType
 from memory.store.memory_store import MemoryEntry, MemoryScope, MemoryStore
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryRetriever:
@@ -125,8 +128,24 @@ class MemoryRetriever:
                         task_id=task_id,
                         agent_id=mem.source_agent,
                     )
-                except Exception:
-                    pass
+                except sqlite3.OperationalError as exc:
+                    # Previously `except Exception: pass`, which silently dropped
+                    # retrieval-history rows whenever the database was momentarily
+                    # locked — the exact failure WAL and busy_timeout now make rare.
+                    # A lost row must still be visible rather than invisible, so it is
+                    # logged. Retrieval itself is not failed: the caller already has
+                    # its context and losing an audit row must not break the read.
+                    logger.warning(
+                        "retrieval history not recorded for memory %s: %s",
+                        mem.memory_id,
+                        exc,
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning(
+                        "unexpected error recording retrieval for memory %s: %s",
+                        mem.memory_id,
+                        exc,
+                    )
 
         if self._event_bus:
             self._event_bus.publish(
