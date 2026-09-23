@@ -10,6 +10,8 @@ Nothing here performs a real OAuth login, agent execution or credential write.
 from __future__ import annotations
 
 import ast
+import base64
+import datetime
 import http.client
 import json
 import os
@@ -20,12 +22,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from memory.store.memory_store import MemoryScope
 from ui.dashboard import dashboard
 from ui.dashboard.dashboard import (
     MAX_REQUEST_BODY_BYTES,
     ThreadedHTTPServer,
+    WizardSession,
+    _cleanup_stale_worktrees,
     _is_trusted_local_file,
     _js_literal,
+    _redact_preserving_booleans,
     is_allowed_host_header,
     is_public_path,
 )
@@ -130,14 +136,18 @@ class TestRequestBodyLimits(_ServerMixin, unittest.TestCase):
         )
         self.assertEqual(status, 413)
 
-    def test_non_object_json_does_not_crash(self):
-        body = b"[1, 2, 3]"
-        status, resp = self._raw(
-            "POST", "/api/route",
-            headers={"Content-Length": str(len(body)), "Content-Type": "application/json"},
-            body=body,
-        )
-        self.assertEqual(status, 200, resp)
+    def test_non_object_and_malformed_json_are_400(self):
+        for body in (b"[1, 2, 3]", b"{not json", b"\xff\xfe"):
+            status, resp = self._raw(
+                "POST", "/api/route",
+                headers={"Content-Length": str(len(body)), "Content-Type": "application/json"},
+                body=body,
+            )
+            self.assertEqual(status, 400, (body, resp))
+
+    def test_empty_body_is_still_accepted(self):
+        status, _ = self._raw("POST", "/api/route", headers={"Content-Length": "0"})
+        self.assertEqual(status, 200)
 
 
 class TestStaticContainment(_ServerMixin, unittest.TestCase):
@@ -240,6 +250,247 @@ class TestWizardErrorsDoNotChain(unittest.TestCase):
                 ):
                     offenders.append(node.lineno)
         self.assertEqual(offenders, [])
+
+
+def _post_json(test, path, payload, auth=True, method="POST"):
+    body = json.dumps(payload).encode("utf-8")
+    headers = {"Content-Length": str(len(body)), "Content-Type": "application/json"}
+    if auth:
+        headers.update(test._auth())
+    status, resp = test._raw(method, path, headers=headers, body=body)
+    try:
+        return status, json.loads(resp)
+    except ValueError:
+        return status, resp
+
+
+class TestClineCallbackState(_ServerMixin, unittest.TestCase):
+    """Login CSRF: the public Cline callback must not register forged accounts."""
+
+    FORGED_CODE = base64.b64encode(json.dumps({"accessToken": "forged", "email": "x@evil"}).encode()).decode()
+
+    def _new_session(self, provider="cline"):
+        sess = WizardSession(provider, "zz-review-cline")
+        with dashboard.wizard_manager._lock:
+            dashboard.wizard_manager._sessions[sess.wizard_id] = sess
+        self.addCleanup(dashboard.wizard_manager._sessions.pop, sess.wizard_id, None)
+        return sess
+
+    def _callback(self, query):
+        with mock.patch.object(dashboard, "add_account_config") as add_cfg, \
+                mock.patch.object(dashboard.urllib.request, "urlopen") as urlopen:
+            status, body = self._raw("GET", f"/api/oauth/cline/callback?{query}")
+        return status, body, add_cfg, urlopen
+
+    def test_missing_state_rejected_without_side_effects(self):
+        status, body, add_cfg, urlopen = self._callback(f"code={self.FORGED_CODE}&account_id=zz-evil")
+        self.assertEqual(status, 400)
+        self.assertIn("Invalid or expired OAuth state", body)
+        add_cfg.assert_not_called()
+        urlopen.assert_not_called()
+
+    def test_wizard_id_is_not_accepted_as_state(self):
+        sess = self._new_session()
+        status, _, add_cfg, _ = self._callback(f"code={self.FORGED_CODE}&state={sess.wizard_id}")
+        self.assertEqual(status, 400)
+        add_cfg.assert_not_called()
+
+    def test_state_is_single_use_expiring_and_provider_bound(self):
+        wm = dashboard.wizard_manager
+        sess = self._new_session()
+        nonce = wm.issue_oauth_state(sess)
+        self.assertIs(wm.consume_oauth_state(nonce, "cline"), sess)
+        self.assertIsNone(wm.consume_oauth_state(nonce, "cline"))  # single use
+
+        nonce = wm.issue_oauth_state(sess)
+        self.assertIsNone(wm.consume_oauth_state(nonce, "antigravity"))  # wrong provider
+
+        nonce = wm.issue_oauth_state(sess)
+        with mock.patch.object(dashboard.time, "time", return_value=dashboard.time.time() + 3600):
+            self.assertIsNone(wm.consume_oauth_state(nonce, "cline"))  # expired
+        self.assertIsNone(wm.consume_oauth_state("", "cline"))
+
+    def test_launch_login_uses_nonce_not_wizard_id(self):
+        sess = self._new_session()
+        info = dashboard.wizard_manager.launch_login(sess, redirect_origin="http://127.0.0.1:1")
+        state = dashboard.urllib.parse.parse_qs(dashboard.urllib.parse.urlsplit(info["auth_url"]).query)["state"][0]
+        self.assertNotEqual(state, sess.wizard_id)
+        self.assertIs(dashboard.wizard_manager.consume_oauth_state(state, "cline"), sess)
+
+
+class TestMemoryScope(_ServerMixin, unittest.TestCase):
+    def test_add_uses_requested_scope(self):
+        entry = mock.Mock()
+        entry.to_dict.return_value = {"ok": True}
+        with mock.patch.object(dashboard.memory_store, "add", return_value=entry) as add:
+            status, _ = _post_json(self, "/api/memory/add", {"content": "x", "scope": "task"})
+        self.assertEqual(status, 200)
+        self.assertIs(add.call_args.kwargs["scope"], MemoryScope.TASK)
+
+    def test_add_unknown_scope_is_400(self):
+        with mock.patch.object(dashboard.memory_store, "add") as add:
+            status, _ = _post_json(self, "/api/memory/add", {"content": "x", "scope": "bogus"})
+        self.assertEqual(status, 400)
+        add.assert_not_called()
+
+    def test_search_scope_filter_is_applied(self):
+        with mock.patch.object(dashboard, "MemoryRetriever") as retr:
+            retr.return_value.retrieve_context.return_value = []
+            status, _ = _post_json(self, "/api/memory/search", {"query": "q", "scope": "agent"})
+        self.assertEqual(status, 200)
+        self.assertIs(retr.return_value.retrieve_context.call_args.kwargs["scope"], MemoryScope.AGENT)
+
+
+class TestBadIntegersReturn400(_ServerMixin, unittest.TestCase):
+    def test_get_limits(self):
+        for path in ("/api/memory/retrieval-history?limit=abc", "/api/routing/history?limit=abc"):
+            status, body = self._raw("GET", path, headers=self._auth())
+            self.assertEqual(status, 400, path)
+            self.assertIn("limit", body)
+
+    def test_memory_importance(self):
+        with mock.patch.object(dashboard.memory_store, "add") as add:
+            status, body = _post_json(self, "/api/memory/add", {"content": "x", "importance": "high"})
+        self.assertEqual(status, 400)
+        self.assertIn("importance", body["message"])
+        add.assert_not_called()
+
+    def test_patch_account_priority(self):
+        reg = dashboard.registry.account_registry
+        with mock.patch.object(reg, "get_account", return_value=mock.Mock()), \
+                mock.patch.object(reg, "update_account") as upd:
+            status, _ = _post_json(self, "/api/accounts/zz-any", {"priority": "high"}, method="PATCH")
+        self.assertEqual(status, 400)
+        upd.assert_not_called()
+
+    def test_create_account_validates_before_storing_credentials(self):
+        with mock.patch.object(dashboard, "get_credential_manager") as gcm, \
+                mock.patch.object(dashboard.registry.account_registry, "register_account") as reg:
+            status, _ = _post_json(self, "/api/accounts", {
+                "name": "zz-review", "provider": "zzprov", "api_key": "k", "concurrency_limit": "many",
+            })
+        self.assertEqual(status, 400)
+        gcm.assert_not_called()
+        reg.assert_not_called()
+
+    def test_cleanup_max_age(self):
+        status, _ = _post_json(self, "/api/worktrees/cleanup", {"confirm": True, "max_age_hours": "x"})
+        self.assertEqual(status, 400)
+
+
+class _FakeRecord:
+    def __init__(self, task_id, status, hours_ago):
+        self.task_id = task_id
+        self.status = status
+        self.updated_at = (datetime.datetime.now(datetime.timezone.utc)
+                           - datetime.timedelta(hours=hours_ago)).isoformat()
+
+    def to_dict(self):
+        return {"task_id": self.task_id, "status": self.status}
+
+
+class _FakeWorktrees:
+    """Mirrors the real WorktreeManager signatures the dashboard must call."""
+
+    def __init__(self, records):
+        self.records = {r.task_id: r for r in records}
+        self.cleaned = []
+
+    def get(self, task_id):
+        return self.records.get(task_id)
+
+    def status(self, task_id=None):
+        return list(self.records.values())
+
+    def cleanup(self, task_id, force=False, delete_branch=False):
+        self.cleaned.append((task_id, delete_branch))
+        return task_id in self.records
+
+    def recover(self):
+        return [r for r in self.records.values() if r.status == "ORPHANED"]
+
+
+class TestWorktreeEndpoints(_ServerMixin, unittest.TestCase):
+    def _fake(self):
+        fake = _FakeWorktrees([
+            _FakeRecord("old-applied", "APPLIED", 48),
+            _FakeRecord("new-applied", "APPLIED", 1),
+            _FakeRecord("old-active", "ACTIVE", 48),
+            _FakeRecord("orphan", "ORPHANED", 48),
+        ])
+        patcher = mock.patch.object(dashboard.orchestrator, "_worktree_manager", fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return fake
+
+    def test_batch_cleanup_only_sweeps_stale_finished_worktrees(self):
+        fake = self._fake()
+        status, body = _post_json(self, "/api/worktrees/cleanup", {"confirm": True})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(sorted(t for t, _ in fake.cleaned), ["old-applied", "orphan"])
+        self.assertTrue(all(db is False for _, db in fake.cleaned))
+
+    def test_single_cleanup_uses_cleanup_signature(self):
+        fake = self._fake()
+        status, body = _post_json(self, "/api/worktrees/cleanup", {"confirm": True, "task_id": "old-active"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(fake.cleaned, [("old-active", True)])
+
+    def test_recover(self):
+        self._fake()
+        status, body = _post_json(self, "/api/worktrees/recover", {"task_id": "orphan"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["worktree"]["task_id"], "orphan")
+        self.assertEqual(body["count"], 1)
+
+    def test_unknown_task_is_404(self):
+        self._fake()
+        for path in ("/api/worktrees/reject", "/api/worktrees/apply", "/api/worktrees/recover"):
+            status, _ = _post_json(self, path, {"task_id": "nope", "confirm": True})
+            self.assertEqual(status, 404, path)
+
+    def test_stale_helper_direct(self):
+        fake = _FakeWorktrees([_FakeRecord("f", "FAILED", 30), _FakeRecord("p", "PENDING_REVIEW", 300)])
+        self.assertEqual(_cleanup_stale_worktrees(fake, 24), [{"task_id": "f", "previous_status": "FAILED"}])
+
+
+class TestProviderIdValidation(_ServerMixin, unittest.TestCase):
+    def test_empty_or_unsafe_id_rejected(self):
+        with mock.patch.object(dashboard.registry, "register_ai_provider") as reg:
+            for payload in ({}, {"id": ""}, {"id": "../x"}, {"id": 5}, {"id": "a b"}):
+                status, _ = _post_json(self, "/api/providers", payload)
+                self.assertEqual(status, 400, payload)
+        reg.assert_not_called()
+
+
+class TestCheckAuthBooleans(_ServerMixin, unittest.TestCase):
+    def test_helper_keeps_bools_but_redacts_secrets(self):
+        out = _redact_preserving_booleans({
+            "authenticated": True, "token_exists": False,
+            "auth_token": "sk-abcdefghijklmnopqrstuvwxyz0123",
+            "nested": [{"token_exists": True}],
+        })
+        self.assertIs(out["authenticated"], True)
+        self.assertIs(out["token_exists"], False)
+        self.assertIs(out["nested"][0]["token_exists"], True)
+        self.assertNotIn("sk-abcdefghijklmnopqrstuvwxyz0123", json.dumps(out))
+
+    def test_get_endpoint_returns_real_booleans(self):
+        sess = mock.Mock()
+        with mock.patch.object(dashboard.wizard_manager, "get", return_value=sess), \
+                mock.patch.object(dashboard.wizard_manager, "check_auth_status",
+                                  return_value={"authenticated": True, "token_exists": True, "account_id": "a"}):
+            status, body = self._raw("GET", "/api/wizard/check-auth?wizard_id=w", headers=self._auth())
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertIs(data["authenticated"], True)
+        self.assertIs(data["token_exists"], True)
+
+
+class TestServerBacklog(unittest.TestCase):
+    def test_listen_backlog_is_raised(self):
+        self.assertGreaterEqual(ThreadedHTTPServer.request_queue_size, 128)
+        self.assertTrue(ThreadedHTTPServer.daemon_threads)
 
 
 if __name__ == "__main__":
