@@ -9,6 +9,7 @@ import unittest
 import urllib.request
 from http.server import HTTPServer
 
+from tests.support.hermetic import auth_headers
 from ui.dashboard import dashboard
 
 
@@ -30,7 +31,12 @@ class TestMissionControlApi(unittest.TestCase):
         cls.server.server_close()
 
     def _get(self, path):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=15) as resp:
+        # Sensitive GET endpoints require the bearer token; send it exactly as
+        # the browser UI does (Authorization header). Auth stays enforced.
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}{path}", headers=auth_headers()
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
             self.assertEqual(resp.status, 200)
             return json.loads(resp.read().decode("utf-8"))
 
@@ -131,7 +137,7 @@ class TestMissionControlApi(unittest.TestCase):
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/api/route",
             data=json.dumps({"instruction": "Run tests on auth module"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **auth_headers()},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -145,7 +151,7 @@ class TestMissionControlApi(unittest.TestCase):
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/api/memory/search",
             data=json.dumps({"query": "authentication"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **auth_headers()},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -155,7 +161,8 @@ class TestMissionControlApi(unittest.TestCase):
             self.assertIn("memories", data)
 
     def test_html_dashboard_and_javascript_syntax(self):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/", timeout=10) as resp:
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/", headers=auth_headers())
+        with urllib.request.urlopen(req, timeout=10) as resp:
             self.assertEqual(resp.status, 200)
             html = resp.read().decode("utf-8")
             self.assertIn("AGENTIC BRAIN", html)
@@ -169,9 +176,12 @@ class TestMissionControlApi(unittest.TestCase):
             self.assertIn('id="tab-worktrees"', html)
             self.assertIn('id="tab-flow"', html)
             self.assertIn('id="tab-memory"', html)
-            self.assertIn('id="tab-handoffs"', html)
             self.assertIn('id="tab-events"', html)
-            self.assertIn('id="tab-git"', html)
+            # The standalone Handoffs and Git tabs were removed on purpose in
+            # 3fd7692 ("UI clean-up"); Mission Control provider/account/model/
+            # job/usage tabs took their place.
+            for tab in ("mc-providers", "mc-accounts", "mc-models", "mc-jobs", "mc-usage"):
+                self.assertIn(f'id="tab-{tab}"', html)
 
             # Ensure script block parses with zero syntax errors
             script = html.split("<script>")[2].split("</script>")[0]

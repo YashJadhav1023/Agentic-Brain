@@ -16,8 +16,6 @@ import ui.dashboard.dashboard as dashboard
 from tasks.manager import TaskManager
 from ui.dashboard.dashboard import ThreadedHTTPServer, MissionControlHandler
 
-TEST_PORT = 18888
-
 
 class TestApiSecurity(unittest.TestCase):
     """Verify endpoint authentication, forbidden mutations without auth, and zero secret leaks."""
@@ -40,10 +38,11 @@ class TestApiSecurity(unittest.TestCase):
         cls._orig_token_env = os.environ.get("MISSION_CONTROL_AUTH_TOKEN")
         os.environ["MISSION_CONTROL_AUTH_TOKEN"] = "test-suite-token-isolation-0123456789"
 
-        cls.server = ThreadedHTTPServer(("127.0.0.1", TEST_PORT), MissionControlHandler)
+        # Ephemeral port: a fixed port collides with any concurrently running suite.
+        cls.server = ThreadedHTTPServer(("127.0.0.1", 0), MissionControlHandler)
+        cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        time.sleep(0.5)
 
     @classmethod
     def tearDownClass(cls):
@@ -60,7 +59,7 @@ class TestApiSecurity(unittest.TestCase):
 
     def test_token_endpoint_works_and_returns_token(self):
         """Verify /api/token returns a session bearer token."""
-        req = urllib.request.Request(f"http://127.0.0.1:{TEST_PORT}/api/token")
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/token")
         with urllib.request.urlopen(req) as resp:
             self.assertEqual(resp.status, 200)
             data = json.loads(resp.read().decode("utf-8"))
@@ -70,9 +69,9 @@ class TestApiSecurity(unittest.TestCase):
     def test_unauthenticated_mutation_is_rejected(self):
         """Mutating POST/PATCH/DELETE endpoints without bearer token must return 401."""
         endpoints = [
-            f"http://127.0.0.1:{TEST_PORT}/api/jobs",
-            f"http://127.0.0.1:{TEST_PORT}/api/providers",
-            f"http://127.0.0.1:{TEST_PORT}/api/accounts"
+            f"http://127.0.0.1:{self.port}/api/jobs",
+            f"http://127.0.0.1:{self.port}/api/providers",
+            f"http://127.0.0.1:{self.port}/api/accounts"
         ]
         for url in endpoints:
             req = urllib.request.Request(
@@ -87,13 +86,17 @@ class TestApiSecurity(unittest.TestCase):
     def test_authenticated_requests_succeed(self):
         """With valid bearer token, authorized requests succeed."""
         # Get token
-        with urllib.request.urlopen(f"http://127.0.0.1:{TEST_PORT}/api/token") as resp:
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/token") as resp:
             token = json.loads(resp.read().decode("utf-8"))["token"]
 
         # Submit job with auth
-        payload = json.dumps({"task": "Run security check", "priority": 5}).encode("utf-8")
+        # auto_execute=False: this checks authorisation, not execution. Left on,
+        # the job is run for real in a background thread against a live agent CLI.
+        payload = json.dumps(
+            {"task": "Run security check", "priority": 5, "auto_execute": False}
+        ).encode("utf-8")
         req = urllib.request.Request(
-            f"http://127.0.0.1:{TEST_PORT}/api/jobs",
+            f"http://127.0.0.1:{self.port}/api/jobs",
             data=payload,
             headers={
                 "Content-Type": "application/json",
@@ -107,12 +110,21 @@ class TestApiSecurity(unittest.TestCase):
 
     def test_zero_leakage_in_api_responses(self):
         """Verify status and accounts endpoints never contain secret keys in raw text."""
-        with urllib.request.urlopen(f"http://127.0.0.1:{TEST_PORT}/api/status") as resp:
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/status") as resp:
             raw_text = resp.read().decode("utf-8")
             self.assertNotIn("sk-proj-", raw_text)
             self.assertNotIn("api_key", raw_text.lower())
 
-        with urllib.request.urlopen(f"http://127.0.0.1:{TEST_PORT}/api/accounts") as resp:
+        # /api/accounts is not public: authenticate as the browser UI does, so
+        # the leakage check runs against the real authorised payload.
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/token") as resp:
+            token = json.loads(resp.read().decode("utf-8"))["token"]
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/accounts",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
             raw_text = resp.read().decode("utf-8")
             self.assertNotIn("sk-proj-", raw_text)
             self.assertNotIn("my-super-secret", raw_text)
