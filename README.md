@@ -3,7 +3,7 @@
 [![Multi-Agent Status](https://img.shields.io/badge/Agents-4%20Active%20Headless-emerald.svg)](./docs/AGENTS.md)
 [![Hardware](https://img.shields.io/badge/Host-CachyOS%20Linux%20(2%20cores%20/%2016GB)-blue.svg)](./ARCHITECTURE.md)
 [![Security](https://img.shields.io/badge/Security-Zero%20Secret%20Leak-success.svg)](./docs/SECURITY.md)
-[![Tests](https://img.shields.io/badge/Tests-510%2F510%20Passing-brightgreen.svg)](./docs/PHASE20_FINAL_AUDIT.md)
+[![Tests](https://img.shields.io/badge/Tests-unittest%20%2B%20smoke-brightgreen.svg)](#20-development-benchmarks--testing)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
 **Agentic Brain** is an enterprise-grade, ultra-lightweight autonomous multi-agent development and orchestration platform. It operates as a unified cognitive coordination layer over independent coding agents (**Google Antigravity Account 1**, **Google Antigravity Account 2**, **Kiro CLI**, and **Cline CLI**), providing autonomous multi-factor routing, contextual BM25 shared memory, structured handoffs, universal cross-agent continuation, automated rate-limit failover, git worktree sandboxing, and a real-time reactive Mission Control operations cockpit.
@@ -158,7 +158,7 @@ The Smart Router (`brain/router/smart_router.py`) evaluates all active agents th
 
 $$\text{Score} = w_{\text{kw}} \cdot S_{\text{kw}} + w_{\text{cap}} \cdot S_{\text{cap}} + w_{\text{model}} \cdot S_{\text{model}} + w_{\text{health}} \cdot S_{\text{health}} + w_{\text{success}} \cdot S_{\text{success}} - w_{\text{load}} \cdot S_{\text{load}} - w_{\text{lat}} \cdot S_{\text{lat}} + w_{\text{pref}} \cdot S_{\text{pref}}$$
 
-Every decision logs candidate scores and an explainable rationale to `runtime/router_history.jsonl`, visible live in Mission Control.
+Every decision logs candidate scores and an explainable rationale to `runtime/logs/routing_history.jsonl`, visible live in Mission Control.
 
 ---
 
@@ -188,7 +188,7 @@ When an agent completes an initial task stage, it writes a structured Picoschema
 To guarantee codebase safety:
 
 * Every modifying task can execute inside an isolated Git worktree (`runtime/sandboxes/<task_id>`).
-* Code modifications stay isolated on temporary branches (`sandbox/<task_id>`).
+* Code modifications stay isolated on temporary branches (`agentic/task/<task_id>`).
 * Mission Control allows visual diff inspection (`GET /api/worktrees/diff`).
 * Changes can be merged to `main` with explicit confirmation (`POST /api/worktrees/apply`) or discarded cleanly (`POST /api/worktrees/reject`).
 
@@ -203,7 +203,7 @@ Mission Control (`ui/dashboard/dashboard.py`) is a real-time reactive web applic
 * **Interactive Routing Simulator:** Test the 8-factor routing engine directly from the UI.
 * **Interactive Memory Search:** Run BM25 search queries and insert memory entries on the fly.
 * **Hardware & Token Telemetry:** Live CPU/memory gauges, token counts distinguishing **Known Tokens** from **Estimated Tokens**, and agent health monitors.
-* **Zero Build Steps:** Built with clean native HTML5, CSS custom properties, and modern ES6 with automatic 5-second polling and toast notifications.
+* **Zero Build Steps:** Built with clean native HTML5, CSS custom properties, and modern ES6 with automatic 3-second polling, a live SSE event stream (`/api/events/stream`), and toast notifications.
 
 ---
 
@@ -228,7 +228,7 @@ MAX_HEAVY_AGENTS=1
 * **Bearer Token Authentication:** Mutating actions (`/api/dispatch`, `/api/execute`, `/api/tasks/cancel`, `/api/memory/add`, `/api/worktrees/*`) require Bearer token authentication stored in `runtime/mission_control.token` (permissions `0600`).
 * **Rate Limiting:** Sliding-window rate limiter enforces max 30 requests/minute on execution endpoints.
 * **Zero Secret Leakage:** Prompts, logs, and telemetry redact API keys, private tokens, and passwords.
-* **CORS Restrictions:** Restricts origins to local loopback (`http://127.0.0.1:3333`, `http://localhost:*`).
+* **CORS Restrictions:** Restricts origins to local loopback hosts (`127.0.0.1`, `localhost`, `::1`, any port).
 
 ---
 
@@ -245,14 +245,18 @@ MAX_HEAVY_AGENTS=1
 
 ### Clone & Setup
 ```bash
-git clone https://github.com/your-org/Agentic_shared_memory.git
-cd Agentic_shared_memory
+git clone https://github.com/YashJadhav1023/Agentic-Brain.git
+cd Agentic-Brain
 
 # Copy environment configuration
 cp .env.example .env
 
-# Verify that all unit and integration tests pass (175 tests, zero dependencies)
-python3 -m unittest discover -s tests
+# Run the test suite (zero dependencies). `-t .` is required: without it the
+# tests cannot import the project packages and discovery reports import errors.
+python3 -m unittest discover -s tests -t .
+
+# Hermetic end-to-end smoke test of the CLI, dashboard API and memory store
+python3 scripts/smoke_test.py
 ```
 
 ---
@@ -300,10 +304,13 @@ python3 scripts/brain.py route "Design event streaming architecture"
 # Plan and queue a task
 python3 scripts/brain.py plan "Refactor database connection pool"
 
-# Execute queued tasks in the swarm
+# Execute queued tasks in the swarm (runs the real agent CLIs)
 python3 scripts/brain.py execute
 
-# Universal Continue from latest handoff / state
+# Preview what a Universal Continue would do, without running an agent
+python3 scripts/brain.py continue --dry-run
+
+# Universal Continue from latest handoff / state (runs the real agent CLIs)
 python3 scripts/brain.py continue
 
 # View task status
@@ -318,10 +325,12 @@ Launch the real-time Mission Control dashboard:
 
 ```bash
 python3 ui/dashboard/dashboard.py
+# or, equivalently
+python3 scripts/brain.py dashboard --port 3333
 ```
 
-* **URL:** `http://127.0.0.1:3333`
-* **Auth Token:** Automatically loaded from `runtime/mission_control.token` by the web UI.
+* **URL:** `http://127.0.0.1:3333` (override with `BRAIN_PORT` or `--port`)
+* **Auth Token:** Generated on first start in `runtime/mission_control.token` (mode `0600`). The web UI fetches it from the loopback-only `GET /api/token` endpoint and sends it as `Authorization: Bearer <token>`; the SSE stream accepts it as `?token=`.
 
 ---
 
@@ -329,9 +338,26 @@ python3 ui/dashboard/dashboard.py
 
 ### Running the Test Suite
 ```bash
-python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests -t .        # everything
+python3 -m unittest discover -s tests/unit -t .   # unit tests only
 ```
-*Expected baseline: 175/175 tests passing.*
+
+### Running the End-to-End Smoke Test
+```bash
+python3 scripts/smoke_test.py            # all groups; exits non-zero on any failure
+python3 scripts/smoke_test.py -v         # show evidence for passing checks too
+python3 scripts/smoke_test.py --only dashboard --only cli
+python3 scripts/smoke_test.py --keep     # keep the sandbox (and dashboard.log) for inspection
+```
+*Hermetic: copies the tracked files into a temporary directory, redirects `HOME`,
+`BRAIN_DIR`, `XDG_*` and `BRAIN_PROVIDERS_CONFIG` into it, and puts shims for
+`agy`, `kiro-cli`, `cline` and `secret-tool` first on `PATH`. The shims answer
+`--version` and refuse everything else, so no real agent, OAuth flow or OS keyring
+is ever touched, and your checkout, `~/agentic-brain` and `~/.gemini` are never
+written. It starts the dashboard on `127.0.0.1` on an ephemeral port, hits every
+route (happy path plus a bad input each, including the SSE stream), runs every
+`scripts/brain.py` subcommand, and round-trips memory, tasks, jobs and handoffs.
+Standard library only; takes a few minutes.*
 
 ### Running the Optimization Benchmark Suite
 ```bash
@@ -343,7 +369,8 @@ python3 scripts/benchmark.py --json
 ```bash
 python3 scripts/live_pipeline_demonstration.py
 ```
-*Executes a live end-to-end task through routing, targeted memory retrieval, context optimization, headless AG-2 execution, handoff, continuation, and failover verification.*
+*Not hermetic: this runs `Orchestrator.execute_next()`, i.e. a real agent CLI with your configured accounts, against this checkout.
+Executes a live end-to-end task through routing, targeted memory retrieval, context optimization, headless AG-2 execution, handoff, continuation, and failover verification.*
 
 ---
 

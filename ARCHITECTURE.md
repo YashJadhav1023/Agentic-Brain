@@ -153,13 +153,24 @@ cp .env.example .env
 # Verify the install: standard library only, no dependencies to fetch.
 python3 -m unittest discover -s tests/unit -t .
 
+# Optional: hermetic end-to-end smoke test (CLI, every dashboard route, memory,
+# tasks, handoffs). Uses a temp copy and shimmed agent CLIs; never runs a real agent.
+python3 scripts/smoke_test.py
+
 # Start Mission Control on http://127.0.0.1:3333
 python3 ui/dashboard/dashboard.py
 ```
 
-On first start the dashboard generates `runtime/mission_control.token` (mode `0600`) and
-serves the UI with that token embedded, so the browser authenticates itself. The API
-requires it; `curl` without a bearer token correctly returns 401.
+On first start the dashboard generates `runtime/mission_control.token` (mode `0600`).
+The UI fetches it from the unauthenticated, loopback-only `GET /api/token` endpoint and
+then sends `Authorization: Bearer <token>` on every API call (the SSE stream
+`/api/events/stream` takes it as `?token=` because `EventSource` cannot set headers).
+Protected endpoints return 401 without it, for example:
+
+```bash
+TOKEN=$(curl -s http://127.0.0.1:3333/api/token | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3333/api/tasks
+```
 
 ### Configuration
 
@@ -168,6 +179,9 @@ Everything is optional — the defaults work on a clean clone.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `BRAIN_PORT` | `3333` | Dashboard port |
+| `BRAIN_HOST` | `127.0.0.1` | Dashboard bind address; only loopback addresses are accepted |
+| `BRAIN_PROVIDERS_CONFIG` | `config/providers.json` | Alternate providers/accounts file (tests and sandboxes use a throwaway copy) |
+| `MISSION_CONTROL_AUTH_TOKEN` | *(generated)* | Use this bearer token instead of `runtime/mission_control.token` |
 | `BRAIN_DIR` | `~/agentic-brain` | Shared-brain store root on this machine |
 | `BRAIN_WORKSPACE_ROOT` | current directory | Where to discover docs, skills and steering files |
 | `BRAIN_REPO_ROOT` | current directory | Where to discover sibling git repositories |
@@ -220,7 +234,9 @@ repository gives you the code, not someone else's history.
 | `runtime/sandboxes/` | Git worktrees for agent runs |
 | `tasks/{queue,active,completed,failed}/*.json` | Your task records |
 | `sessions/*.json` | Your session registry |
+| `handoffs/current.md`, `handoffs/current.json` | Your live handoff baton |
 | `handoffs/archive/` | Your archived handoffs |
+| `ui/dashboard/runtime/` | Audit log written when the dashboard is started from `ui/dashboard/` |
 | `creds_oauth.json`, `.env` | Your credentials — never tracked |
 
 Credentials are read at runtime from your own environment or from files under `~`, and
