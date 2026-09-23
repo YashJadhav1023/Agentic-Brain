@@ -121,36 +121,6 @@
       color: #FFFFFF !important;
     }
 
-    
-    select:focus {
-      border-color: #FFFFFF !important;
-      outline: none !important;
-    }
-    select option {
-      background-color: #181818 !important;
-      color: #FAFAFA !important;
-      padding: 10px 14px !important;
-      font-size: 14px !important;
-    }
-    select option:hover, select option:checked {
-      background-color: #262626 !important;
-      color: #FFFFFF !important;
-    }
-    
-    select:focus {
-      border-color: #FFFFFF !important;
-      outline: none !important;
-    }
-    select option {
-      background-color: #181818 !important;
-      color: #FAFAFA !important;
-      padding: 10px 14px !important;
-      font-size: 14px !important;
-    }
-    select option:hover, select option:checked {
-      background-color: #262626 !important;
-      color: #FFFFFF !important;
-    }
     .font-mono, .telemetry-num {
       font-family: 'JetBrains Mono', monospace;
       font-feature-settings: "tnum" 1, "zero" 1;
@@ -181,16 +151,6 @@
     /* Smooth transitions */
     .tab-btn, .action-btn, .interactive-card, .btn-primary, .btn-secondary {
       transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    /* Active tab styling: Matte White left indicator & subtle elevated dark background */
-    .tab-btn.tab-active {
-      background-color: #181818;
-      color: #FFFFFF;
-      border-left: 3px solid #FFFFFF;
-      font-weight: 600;
-    }
-    .tab-btn:not(.tab-active) {
-      border-left: 3px solid transparent;
     }
     /* Focus rings meeting WCAG AA */
     *:focus-visible {
@@ -234,170 +194,333 @@
       background-color: #222222;
       border-color: #3F3F46;
     }
+
+    /* ── App shell: header, sidebar drawer, live status, banner, toasts ── */
+    /* The vendored Plus Jakarta Sans subset has a very narrow space glyph; open
+       word gaps a little for sans text only. */
+    body { word-spacing: .12em; }
+    button, input, select, textarea { word-spacing: inherit; }
+    .font-mono, code, kbd, pre, .ui-mono, .shell-brand-sub, .shell-count { word-spacing: normal; }
+    /* Each pane starts with an empty legacy anchor div (#dashboard, #tasks …);
+       don't let it add a blank gap above the page header. */
+    .tab-pane > div:empty:first-child + * { margin-top: 0 !important; }
+    :root { --shell-header-h: 60px; --shell-sidebar-w: 16.5rem; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    .shell-skip { position: absolute; left: .75rem; top: -3rem; z-index: 80; }
+    .shell-skip:focus { top: .75rem; }
+
+    body.app-shell { height: 100vh; height: 100dvh; overflow: hidden; }
+    .shell-header {
+      height: var(--shell-header-h); flex-shrink: 0; position: relative; z-index: 50;
+      display: flex; align-items: center; gap: .75rem; padding: 0 1rem;
+      background: rgba(10,10,10,.96); border-bottom: 1px solid var(--ui-border);
+    }
+    @media (min-width: 640px) { .shell-header { padding: 0 1.25rem; gap: 1rem; } }
+    .shell-brand { display: flex; align-items: center; gap: .65rem; flex-shrink: 0; color: #fff; text-decoration: none; border-radius: 10px; }
+    .shell-brand-mark {
+      width: 2.1rem; height: 2.1rem; border-radius: 10px; display: grid; place-items: center;
+      background: var(--ui-surface-2); border: 1px solid var(--ui-border-strong); font-size: .85rem;
+    }
+    .shell-brand-name { font-size: .8rem; font-weight: 800; letter-spacing: .02em; line-height: 1.1; }
+    .shell-brand-sub { font-size: .62rem; font-weight: 600; letter-spacing: .12em; color: var(--ui-text-faint); line-height: 1.2; font-family: 'JetBrains Mono', monospace; }
+    .shell-divider { width: 1px; height: 1.75rem; background: var(--ui-border); flex-shrink: 0; }
+    .shell-title { min-width: 0; flex: 1 1 auto; }
+    .shell-title h1 { font-size: .95rem; font-weight: 700; color: #fff; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.01em; }
+    .shell-title p { font-size: .75rem; color: var(--ui-text-muted); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .shell-actions { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; margin-left: auto; }
+    .shell-icon-btn {
+      width: 2.25rem; height: 2.25rem; flex-shrink: 0; display: inline-grid; place-items: center; border-radius: 8px;
+      color: var(--ui-text-muted); background: transparent; border: 1px solid var(--ui-border);
+      transition: background-color .15s, color .15s, border-color .15s;
+    }
+    .shell-icon-btn:hover { background: var(--ui-surface-2); color: #fff; border-color: var(--ui-border-strong); }
+    .shell-icon-btn:disabled { opacity: .55; cursor: progress; }
+
+    /* Live connection indicator */
+    .shell-live {
+      display: inline-flex; align-items: center; gap: .5rem; height: 2.25rem; padding: 0 .7rem;
+      border-radius: 999px; border: 1px solid var(--ui-border); background: var(--ui-surface);
+      font-size: .72rem; font-weight: 600; color: var(--ui-text); white-space: nowrap;
+    }
+    .shell-live-dot { width: .5rem; height: .5rem; border-radius: 999px; background: var(--ui-idle); flex-shrink: 0; }
+    .shell-live-time { color: var(--ui-text-faint); font-weight: 500; }
+    .shell-live[data-state="live"] .shell-live-dot { background: var(--ui-ok); box-shadow: 0 0 0 3px rgba(34,197,94,.18); }
+    .shell-live[data-state="polling"] .shell-live-dot { background: var(--ui-busy); }
+    .shell-live[data-state="connecting"] .shell-live-dot,
+    .shell-live[data-state="reconnecting"] .shell-live-dot { background: var(--ui-warn); animation: ui-pulse 1.2s ease-in-out infinite; }
+    .shell-live[data-state="reconnecting"] { border-color: rgba(245,158,11,.4); }
+    .shell-live[data-state="offline"] .shell-live-dot { background: var(--ui-bad); }
+    .shell-live[data-state="offline"] { border-color: rgba(239,68,68,.45); color: #FCA5A5; }
+
+    /* Connection problem banner */
+    .shell-banner {
+      display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; flex-shrink: 0;
+      padding: .6rem 1rem; font-size: .8rem; color: #FDE68A;
+      background: #1C1405; border-bottom: 1px solid #5B3B06;
+    }
+    .shell-banner[data-tone="error"] { color: #FECACA; background: #1F0B0B; border-bottom-color: #6B1D1D; }
+    .shell-banner[hidden] { display: none; }
+    .shell-banner-text { flex: 1 1 16rem; min-width: 0; }
+
+    /* Layout: header on top, sidebar + scrolling content below */
+    .shell-body { flex: 1 1 auto; min-height: 0; display: flex; position: relative; }
+    .shell-main { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 1.25rem max(1rem, calc((100% - 80rem) / 2)) 3rem; scroll-padding-top: 1rem; }
+    @media (min-width: 640px) { .shell-main { padding: 1.75rem max(1.5rem, calc((100% - 80rem) / 2)) 3rem; } }
+    @media (min-width: 1280px) { .shell-main { padding: 2.25rem max(2.5rem, calc((100% - 80rem) / 2)) 4rem; } }
+    .shell-main:focus { outline: none; }
+
+    /* Sidebar */
+    #main-sidebar {
+      width: var(--shell-sidebar-w); flex-shrink: 0; display: flex; flex-direction: column;
+      background: var(--ui-bg); border-right: 1px solid var(--ui-border); min-height: 0;
+    }
+    .shell-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .75rem .75rem 1rem; }
+    .shell-nav-heading {
+      padding: 1rem .75rem .35rem; font-size: .66rem; font-weight: 700; letter-spacing: .09em;
+      text-transform: uppercase; color: var(--ui-text-faint);
+    }
+    .shell-nav-heading:first-of-type { padding-top: .5rem; }
+    .shell-nav-item {
+      position: relative; width: 100%; display: flex; align-items: center; gap: .7rem;
+      min-height: 2.35rem; padding: .4rem .7rem; margin: 1px 0; border-radius: 8px; text-align: left;
+      font-size: .85rem; font-weight: 500; color: var(--ui-text-muted);
+      transition: background-color .15s, color .15s;
+    }
+    .shell-nav-item:hover { background: var(--ui-surface); color: #fff; }
+    .shell-nav-icon { width: 1rem; text-align: center; font-size: .8rem; color: var(--ui-text-faint); flex-shrink: 0; }
+    .shell-nav-item:hover .shell-nav-icon { color: var(--ui-text); }
+    .shell-nav-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .shell-nav-item.tab-active { background: var(--ui-surface-2); color: #fff; font-weight: 600; }
+    .shell-nav-item.tab-active::before {
+      content: ""; position: absolute; left: -.75rem; top: .45rem; bottom: .45rem; width: 3px;
+      border-radius: 0 3px 3px 0; background: #fff;
+    }
+    .shell-nav-item.tab-active .shell-nav-icon { color: #fff; }
+    .shell-count {
+      min-width: 1.5rem; padding: .05rem .45rem; border-radius: 999px; text-align: center;
+      font-size: .68rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+      color: #fff; background: var(--ui-surface-3); border: 1px solid var(--ui-border-strong);
+    }
+    .shell-count.is-zero { color: var(--ui-text-faint); background: transparent; border-color: var(--ui-border); }
+    .shell-live-pip { width: .45rem; height: .45rem; border-radius: 999px; background: var(--ui-idle); flex-shrink: 0; }
+    .shell-live-pip[data-state="live"] { background: var(--ui-ok); }
+    .shell-live-pip[data-state="reconnecting"], .shell-live-pip[data-state="connecting"] { background: var(--ui-warn); }
+    .shell-live-pip[data-state="offline"] { background: var(--ui-bad); }
+    .shell-quick {
+      width: 100%; display: flex; align-items: center; gap: .6rem; margin-bottom: .25rem;
+      padding: .55rem .75rem; border-radius: 8px; font-size: .8rem; color: var(--ui-text-muted);
+      background: var(--ui-surface); border: 1px solid var(--ui-border); transition: border-color .15s, color .15s;
+    }
+    .shell-quick:hover { border-color: var(--ui-border-strong); color: #fff; }
+    .shell-fleet { border-top: 1px solid var(--ui-border); padding: .75rem .9rem .9rem; flex-shrink: 0; }
+    .shell-fleet summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; font-size: .66rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ui-text-faint); border-radius: 6px; }
+    .shell-fleet summary::-webkit-details-marker { display: none; }
+    .shell-fleet summary .fa-chevron-down { transition: transform .15s; font-size: .6rem; }
+    .shell-fleet:not([open]) summary .fa-chevron-down { transform: rotate(-90deg); }
+    .shell-fleet-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .35rem; margin-top: .6rem; }
+    .shell-fleet-cell { background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 7px; padding: .35rem .3rem; text-align: center; min-width: 0; }
+    .shell-fleet-cell b { display: block; font-size: .85rem; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace; line-height: 1.2; }
+    .shell-fleet-cell span { display: block; font-size: .58rem; color: var(--ui-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .shell-fleet-cell.ok b { color: var(--ui-ok); } .shell-fleet-cell.busy b { color: var(--ui-warn); }
+    .shell-fleet-cell.info b { color: var(--ui-busy); } .shell-fleet-cell.bad b { color: #F87171; }
+    .shell-sidebar-foot { display: flex; gap: .4rem; padding: 0 .9rem .9rem; flex-shrink: 0; }
+    .shell-sidebar-foot .ui-btn { flex: 1 1 0; min-height: 2rem; padding: .4rem .5rem; font-size: .72rem; font-weight: 500; }
+
+    /* Below 1024px the sidebar becomes an overlay drawer */
+    .shell-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 55; background: rgba(0,0,0,.6); }
+    .shell-backdrop[hidden] { display: none; }
+    @media (max-width: 1023.98px) {
+      #main-sidebar {
+        position: fixed; top: 0; bottom: 0; left: 0; z-index: 60; width: min(18rem, 86vw);
+        transform: translateX(-100%); visibility: hidden; box-shadow: 0 0 40px rgba(0,0,0,.6);
+        transition: transform .2s ease, visibility 0s linear .2s;
+      }
+      body.sidebar-open #main-sidebar { transform: none; visibility: visible; transition: transform .2s ease; }
+    }
+    @media (min-width: 1024px) { #sidebar-toggle, .shell-drawer-close, .shell-backdrop { display: none !important; } }
+
+    /* Toasts */
+    #toast-container {
+      position: fixed; z-index: 70; bottom: 1rem; left: 1rem; right: 1rem;
+      display: flex; flex-direction: column; align-items: stretch; gap: .5rem; pointer-events: none;
+    }
+    @media (min-width: 640px) { #toast-container { left: auto; right: 1.25rem; bottom: 1.25rem; width: 24rem; } }
+    .ui-toast {
+      pointer-events: auto; display: flex; align-items: flex-start; gap: .65rem;
+      padding: .7rem .75rem .7rem .9rem; border-radius: 10px; border: 1px solid var(--ui-border-strong);
+      background: #151515; color: var(--ui-text); font-size: .8rem; line-height: 1.4;
+      box-shadow: 0 12px 30px rgba(0,0,0,.55); transition: opacity .2s ease, transform .2s ease;
+    }
+    .ui-toast.is-leaving { opacity: 0; transform: translateY(6px); }
+    .ui-toast-icon { margin-top: .1rem; flex-shrink: 0; }
+    .ui-toast-msg { flex: 1 1 auto; min-width: 0; word-break: break-word; }
+    .ui-toast-close { flex-shrink: 0; width: 1.5rem; height: 1.5rem; border-radius: 6px; color: var(--ui-text-faint); display: grid; place-items: center; }
+    .ui-toast-close:hover { color: #fff; background: var(--ui-surface-3); }
+    .ui-toast-success { border-color: #166534; } .ui-toast-success .ui-toast-icon { color: var(--ui-ok); }
+    .ui-toast-error { border-color: #7F1D1D; background: #1A0D0D; } .ui-toast-error .ui-toast-icon { color: #F87171; }
+    .ui-toast-warning { border-color: #78350F; } .ui-toast-warning .ui-toast-icon { color: var(--ui-warn); }
+    .ui-toast-info .ui-toast-icon { color: var(--ui-text-muted); }
+
+    kbd.shell-kbd { display: inline-block; min-width: 1.4rem; padding: .05rem .4rem; border-radius: 5px; text-align: center; font-size: .72rem; color: #fff; background: var(--ui-surface-3); border: 1px solid var(--ui-border-strong); }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+    }
   </style>
 </head>
-<body class="bg-[#0A0A0A] text-[#EDEDED] min-h-screen flex flex-col antialiased selection:bg-white selection:text-black">
+<body class="app-shell bg-[#0A0A0A] text-[#EDEDED] flex flex-col antialiased selection:bg-white selection:text-black">
+  <a href="#main-content" class="shell-skip ui-btn ui-btn-primary" onclick="document.getElementById('main-content').focus(); return false;">Skip to content</a>
 
-  <!-- TOP INSTRUMENT PANEL NAVIGATION & TELEMETRY BAR -->
-  <header class="h-[72px] border-b border-[#262626] bg-[#0A0A0A]/95 backdrop-blur-md px-8 flex items-center justify-between sticky top-0 z-50 select-none">
-    <div class="flex items-center space-x-5">
-      <div id="sync-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse" title="Live Connection Active"></div>
-      <div class="flex items-center gap-3.5 cursor-pointer" onclick="showTab('dashboard')" title="Mission Overview">
-        <div class="w-9 h-9 rounded-xl bg-[#171717] border border-[#2B2B2B] flex items-center justify-center text-white font-bold">
-          <i class="fa-solid fa-brain text-sm"></i>
-        </div>
-        <div>
-          <div class="text-base font-bold tracking-tight text-white flex items-center gap-2.5">
-            AGENTIC BRAIN
-            <span class="text-xs px-2.5 py-1 rounded-full bg-[#181818] text-[#FAFAFA] border border-[#333333] font-mono font-medium">
-              MISSION CONTROL
-            </span>
-          </div>
-          <div class="text-xs text-[#A1A1AA] font-mono tracking-wider font-semibold">AUTONOMOUS ORCHESTRATOR</div>
-        </div>
-      </div>
+  <!-- TOP BAR: navigation toggle, brand, current page, live status, primary actions -->
+  <header id="app-header" class="shell-header select-none">
+    <button id="sidebar-toggle" type="button" class="shell-icon-btn" onclick="toggleSidebar()" aria-controls="main-sidebar" aria-expanded="false" aria-label="Open navigation" title="Menu">
+      <i class="fa-solid fa-bars" aria-hidden="true"></i>
+    </button>
+    <a href="#dashboard" class="shell-brand" onclick="showTab('dashboard'); return false;" title="Go to Overview" aria-label="Agentic Brain Mission Control, go to Overview">
+      <span class="shell-brand-mark"><i class="fa-solid fa-brain" aria-hidden="true"></i></span>
+      <span class="hidden sm:flex flex-col">
+        <span class="shell-brand-name">AGENTIC BRAIN</span>
+        <span class="shell-brand-sub">MISSION CONTROL</span>
+      </span>
+    </a>
+    <span class="shell-divider hidden md:block" aria-hidden="true"></span>
+    <div class="shell-title">
+      <h1 id="shell-page-title">Overview</h1>
+      <p id="shell-page-desc" class="hidden md:block">Pipeline, fleet and routing at a glance</p>
     </div>
 
-    <!-- 8 DECOUPLED ACCOUNT FLEET METRICS (HIGH-VISIBILITY MATTE HUD) -->
-    <div class="hidden xl:flex items-center space-x-1.5 border border-[#262626] bg-[#121212] px-5 py-2.5 rounded-xl text-sm font-mono shadow-sm">
-      <div class="flex items-center gap-2 px-2.5 text-[#A1A1AA]" title="Every account known to registry">
-        <span class="text-xs uppercase tracking-wider text-[#A1A1AA] font-sans font-bold">Reg</span>
-        <span id="mc-metric-registered" class="text-white font-bold text-sm">0</span>
+    <div class="shell-actions">
+      <div id="live-status" class="shell-live" data-state="connecting" role="status" aria-live="polite" title="Connecting to the dashboard server…">
+        <span id="sync-dot" class="shell-live-dot" aria-hidden="true"></span>
+        <span id="stream-indicator-text">Connecting…</span>
+        <span id="last-updated" class="shell-live-time hidden md:inline"></span>
       </div>
-      <span class="text-[#333333]">|</span>
-      <div class="flex items-center gap-2 px-2.5 text-[#EDEDED]" title="Authenticated accounts">
-        <span class="text-xs uppercase tracking-wider text-[#A1A1AA] font-sans font-bold">Auth</span>
-        <span id="mc-metric-authenticated" class="font-bold text-white text-sm">0</span>
+      <div id="git-badge" class="hidden 2xl:flex items-center gap-2 px-3 h-9 rounded-lg bg-[#121212] border border-[#262626] font-mono text-[#D4D4D8] text-xs font-semibold" title="Git branch">
+        <i class="fa-solid fa-code-branch text-xs text-white" aria-hidden="true"></i> main
       </div>
-      <span class="text-[#333333]">|</span>
-      <div class="flex items-center gap-2 px-2.5 text-emerald-400" title="Health state HEALTHY">
-        <span class="text-xs uppercase tracking-wider text-[#A1A1AA] font-sans font-bold">Hlth</span>
-        <span id="mc-metric-healthy" class="font-bold text-sm">0</span>
-      </div>
-      <span class="text-[#333333]">|</span>
-      <div class="flex items-center gap-2 px-2.5 text-cyan-400" title="Lifecycle state ONLINE">
-        <span class="text-xs uppercase tracking-wider text-[#A1A1AA] font-sans font-bold">Onl</span>
-        <span id="mc-metric-online" class="font-bold text-sm">0</span>
-      </div>
-      <span class="text-[#333333]">|</span>
-      <div class="flex items-center gap-2 px-2.5 text-amber-400" title="Task state BUSY / RUNNING">
-        <span class="text-xs uppercase tracking-wider text-[#A1A1AA] font-sans font-bold">Busy</span>
-        <span id="mc-metric-busy" class="font-bold text-sm">0</span>
-      </div>
-      <span class="text-[#333333]">|</span>
-      <div class="flex items-center gap-2 px-2.5 text-teal-400" title="Online accounts IDLE">
-        <span class="text-xs uppercase tracking-wider text-[#A1A1AA] font-sans font-bold">Idle</span>
-        <span id="mc-metric-idle" class="font-bold text-sm">0</span>
-      </div>
-      <span class="text-[#333333]">|</span>
-      <div class="flex items-center gap-2 px-2.5 text-rose-400" title="Lifecycle state OFFLINE">
-        <span class="text-xs uppercase tracking-wider text-[#A1A1AA] font-sans font-bold">Offl</span>
-        <span id="mc-metric-offline" class="font-bold text-sm">0</span>
-      </div>
-      <span class="text-[#333333]">|</span>
-      <div class="flex items-center gap-2 px-2.5 text-[#A1A1AA]" title="Lifecycle state DISABLED">
-        <span class="text-xs uppercase tracking-wider text-[#A1A1AA] font-sans font-bold">Dis</span>
-        <span id="mc-metric-disabled" class="font-bold text-sm">0</span>
-      </div>
-    </div>
-
-    <!-- HEADER CONTROLS & TRIGGERS (MATTE BLACK & WHITE CONTRAST) -->
-    <div class="flex items-center space-x-3 text-xs">
-      <div id="git-badge" class="px-3 py-1.5 rounded-lg bg-[#121212] border border-[#262626] font-mono text-[#D4D4D8] text-xs font-semibold flex items-center gap-2" title="Git Branch">
-        <i class="fa-solid fa-code-branch text-xs text-white"></i> main
-      </div>
-      <button onclick="triggerContinue()" class="px-4 py-2 bg-[#171717] hover:bg-[#222222] text-white border border-[#2B2B2B] hover:border-[#3F3F46] rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-2" title="Resume from handoff & memory">
-        <i class="fa-solid fa-play text-xs"></i> <span>Continue</span>
+      <button id="btn-refresh-now" type="button" class="shell-icon-btn hidden sm:inline-grid" onclick="manualRefresh(this)" title="Refresh now (data also refreshes every 3 seconds)" aria-label="Refresh now">
+        <i class="fa-solid fa-rotate-right" aria-hidden="true"></i>
       </button>
-      <button onclick="triggerReconcile()" class="p-2.5 bg-[#121212] hover:bg-[#1C1C1C] text-[#D4D4D8] border border-[#262626] rounded-lg text-xs transition" title="Reconcile runtime tasks and eliminate stale running states">
-        <i class="fa-solid fa-arrows-rotate text-xs"></i>
+      <button type="button" onclick="triggerReconcile()" class="ui-btn ui-btn-secondary hidden sm:inline-flex" title="Fix stuck tasks: mark tasks that are still &quot;running&quot; after a crash or restart as stale">
+        <i class="fa-solid fa-broom" aria-hidden="true"></i><span class="hidden lg:inline">Fix stuck tasks</span><span class="sr-only lg:hidden">Fix stuck tasks</span>
+      </button>
+      <button type="button" onclick="triggerContinue()" class="ui-btn ui-btn-primary" title="Resume work: continue the in-flight task from the shared-memory handoff">
+        <i class="fa-solid fa-play" aria-hidden="true"></i><span class="hidden sm:inline">Resume work</span><span class="sr-only sm:hidden">Resume work</span>
       </button>
     </div>
   </header>
 
+  <!-- Connection / session problems: shown instead of failing silently -->
+  <div id="shell-banner" class="shell-banner" data-tone="warn" role="alert" hidden>
+    <i class="fa-solid fa-plug-circle-xmark" aria-hidden="true"></i>
+    <span id="shell-banner-text" class="shell-banner-text"></span>
+    <button id="shell-banner-retry" type="button" class="ui-btn ui-btn-secondary" onclick="retryConnection(this)">Retry now</button>
+  </div>
+
   <!-- MAIN VIEWPORT CONTAINER -->
-  <div class="flex-1 flex overflow-hidden">
+  <div class="shell-body">
+    <div id="sidebar-backdrop" class="shell-backdrop" onclick="closeSidebar()" hidden></div>
 
-    <!-- PERSISTENT LEFT SIDEBAR WITH SPACIOUS MODERN BUTTONS -->
-    <aside id="main-sidebar" class="w-72 border-r border-[#262626] bg-[#0A0A0A] flex flex-col justify-between shrink-0 select-none">
-      <div class="p-4 space-y-2 overflow-y-auto">
-        <!-- Quick search keyboard hint -->
-        <div class="px-3.5 py-2.5 mb-4 bg-[#121212] border border-[#262626] rounded-xl flex items-center justify-between text-xs text-[#A1A1AA] cursor-pointer hover:border-[#383838] transition" onclick="focusQuickSearch()" title="Press / to search">
-          <span class="flex items-center gap-2.5"><i class="fa-solid fa-magnifying-glass text-xs text-[#71717A]"></i> Quick dispatch...</span>
-          <kbd class="px-2 py-0.5 rounded bg-[#1C1C1C] text-[#FAFAFA] font-mono text-xs border border-[#2E2E2E]">/</kbd>
-        </div>
-
-        <div class="px-3 pt-2 pb-1 text-xs uppercase tracking-wider text-[#A1A1AA] font-mono font-bold">Autonomous Swarm</div>
-
-        <button onclick="showTab('dashboard')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between tab-active" data-tab="dashboard">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-gauge-high text-[#A1A1AA] w-4 text-center"></i> <span>Mission Overview</span></span>
-          <span class="text-xs font-mono text-[#71717A]">G+D</span>
-        </button>
-        <button onclick="showTab('agents')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="agents">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-robot text-[#EDEDED] w-4 text-center"></i> <span>Agents &amp; Accounts</span></span>
-          <span class="text-xs font-mono text-[#71717A]">G+A</span>
-        </button>
-        <button onclick="showTab('flow')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="flow">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-diagram-project text-[#EDEDED] w-4 text-center"></i> <span>Execution Flow</span></span>
-          <span class="text-xs font-mono text-[#71717A]">G+F</span>
-        </button>
-        <button onclick="showTab('tasks')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="tasks">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-list-check text-[#EDEDED] w-4 text-center"></i> <span>Tasks Kanban</span></span>
-          <span id="sidebar-tasks-badge" class="text-xs font-mono px-2 py-0.5 rounded-full bg-[#181818] text-white border border-[#2E2E2E]">0</span>
-        </button>
-        <button onclick="showTab('events')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="events">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-bolt text-[#EDEDED] w-4 text-center"></i> <span>Event Ledger</span></span>
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-        </button>
-        <button onclick="showTab('memory')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="memory">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-database text-[#EDEDED] w-4 text-center"></i> <span>Shared Memory</span></span>
-          <span class="text-xs font-mono text-[#71717A]">BM25</span>
-        </button>
-        <button onclick="showTab('routing')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="routing">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-route text-[#EDEDED] w-4 text-center"></i> <span>Multi-Factor Router</span></span>
-          <span class="text-xs font-mono text-[#71717A]">8-FAC</span>
-        </button>
-        <button onclick="showTab('tokens')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="tokens">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-coins text-[#EDEDED] w-4 text-center"></i> <span>Tokens &amp; Cost</span></span>
-        </button>
-        <button onclick="showTab('worktrees')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="worktrees">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-shield-halved text-[#EDEDED] w-4 text-center"></i> <span>Worktree Sandboxes</span></span>
-        </button>
-
-        <div class="px-3 pt-5 pb-1 text-xs uppercase tracking-wider text-[#A1A1AA] font-mono font-bold border-t border-[#262626]">Mission Control</div>
-
-        <button onclick="showTab('mc-providers')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="mc-providers">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-server text-[#EDEDED] w-4 text-center"></i> <span>Provider Registry</span></span>
-          <span id="sidebar-prov-badge" class="text-xs font-mono px-2 py-0.5 rounded-full bg-[#181818] text-white border border-[#2E2E2E]">--</span>
-        </button>
-        <button onclick="showTab('mc-accounts')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="mc-accounts">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-users-gear text-[#EDEDED] w-4 text-center"></i> <span>Account Manager</span></span>
-          <span id="sidebar-acct-badge" class="text-xs font-mono px-2 py-0.5 rounded-full bg-[#181818] text-white border border-[#2E2E2E]">--</span>
-        </button>
-        <button onclick="showTab('mc-models')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="mc-models">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-cubes text-[#EDEDED] w-4 text-center"></i> <span>Model Registry</span></span>
-          <span id="sidebar-model-badge" class="text-xs font-mono px-2 py-0.5 rounded-full bg-[#181818] text-white border border-[#2E2E2E]">--</span>
-        </button>
-        <button onclick="showTab('mc-jobs')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="mc-jobs">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-layer-group text-[#EDEDED] w-4 text-center"></i> <span>Jobs Control</span></span>
-          <span id="sidebar-jobs-badge" class="text-xs font-mono px-2 py-0.5 rounded-full bg-[#181818] text-white border border-[#2E2E2E]">0</span>
-        </button>
-        <button onclick="showTab('mc-usage')" class="tab-btn w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-[#D4D4D8] hover:bg-[#141414] hover:text-white flex items-center justify-between" data-tab="mc-usage">
-          <span class="flex items-center gap-3"><i class="fa-solid fa-chart-pie text-[#EDEDED] w-4 text-center"></i> <span>Quota &amp; Budgets</span></span>
+    <!-- SIDEBAR NAVIGATION (overlay drawer below 1024px) -->
+    <aside id="main-sidebar" class="select-none" aria-label="Main navigation">
+      <div class="flex items-center justify-between px-4 pt-3 lg:hidden">
+        <span class="text-sm font-bold text-white">Navigation</span>
+        <button type="button" class="shell-icon-btn shell-drawer-close" onclick="closeSidebar()" aria-label="Close navigation" title="Close (Esc)">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
         </button>
       </div>
+      <nav class="shell-nav" aria-label="Sections">
+        <button type="button" class="shell-quick" onclick="focusQuickSearch()" title="Open the dispatch box on Overview">
+          <i class="fa-solid fa-paper-plane text-xs" aria-hidden="true"></i>
+          <span class="flex-1 text-left">Quick dispatch…</span>
+        </button>
 
-      <!-- FOOTER STATUS IN SIDEBAR -->
-      <div class="p-4 border-t border-[#262626] bg-[#0A0A0A] flex items-center justify-between text-xs font-mono">
-        <div class="flex items-center gap-2.5">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"></span>
-          <span id="stream-indicator-text" class="text-[#A1A1AA]">SSE CONNECTED</span>
+        <div class="shell-nav-heading" id="nav-h-overview">Overview</div>
+        <button type="button" onclick="showTab('dashboard')" class="tab-btn shell-nav-item tab-active" data-tab="dashboard" aria-current="page" title="Overview (g then d)" aria-keyshortcuts="g d">
+          <i class="fa-solid fa-gauge-high shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Overview</span>
+        </button>
+        <button type="button" onclick="showTab('events')" class="tab-btn shell-nav-item" data-tab="events" title="Activity log (g then e)" aria-keyshortcuts="g e">
+          <i class="fa-solid fa-bolt shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Activity log</span>
+          <span id="sidebar-live-pip" class="shell-live-pip" data-state="connecting" title="Live event stream status"></span>
+        </button>
+        <button type="button" onclick="showTab('flow')" class="tab-btn shell-nav-item" data-tab="flow" title="Execution flow (g then f)" aria-keyshortcuts="g f">
+          <i class="fa-solid fa-diagram-project shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Execution flow</span>
+        </button>
+
+        <div class="shell-nav-heading">Work</div>
+        <button type="button" onclick="showTab('tasks')" class="tab-btn shell-nav-item" data-tab="tasks" title="Tasks (g then t)" aria-keyshortcuts="g t">
+          <i class="fa-solid fa-list-check shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Tasks</span>
+          <span id="sidebar-tasks-badge" class="shell-count is-zero" title="Queued and running tasks">0</span>
+        </button>
+        <button type="button" onclick="showTab('mc-jobs')" class="tab-btn shell-nav-item" data-tab="mc-jobs" title="Jobs (g then j)" aria-keyshortcuts="g j">
+          <i class="fa-solid fa-layer-group shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Jobs</span>
+          <span id="sidebar-jobs-badge" class="shell-count is-zero" title="Active jobs">0</span>
+        </button>
+        <button type="button" onclick="showTab('worktrees')" class="tab-btn shell-nav-item" data-tab="worktrees" title="Sandboxes (g then w)" aria-keyshortcuts="g w">
+          <i class="fa-solid fa-shield-halved shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Sandboxes</span>
+        </button>
+
+        <div class="shell-nav-heading">Knowledge</div>
+        <button type="button" onclick="showTab('memory')" class="tab-btn shell-nav-item" data-tab="memory" title="Shared memory (g then m)" aria-keyshortcuts="g m">
+          <i class="fa-solid fa-database shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Shared memory</span>
+          <span id="sidebar-memory-badge" class="shell-count is-zero" title="Stored memories">--</span>
+        </button>
+
+        <div class="shell-nav-heading">Agents &amp; Models</div>
+        <button type="button" onclick="showTab('agents')" class="tab-btn shell-nav-item" data-tab="agents" title="Agents (g then a)" aria-keyshortcuts="g a">
+          <i class="fa-solid fa-robot shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Agents</span>
+        </button>
+        <button type="button" onclick="showTab('mc-accounts')" class="tab-btn shell-nav-item" data-tab="mc-accounts" title="Accounts (g then c)" aria-keyshortcuts="g c">
+          <i class="fa-solid fa-users-gear shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Accounts</span>
+          <span id="sidebar-acct-badge" class="shell-count is-zero" title="Registered accounts">--</span>
+        </button>
+        <button type="button" onclick="showTab('mc-providers')" class="tab-btn shell-nav-item" data-tab="mc-providers" title="Providers (g then p)" aria-keyshortcuts="g p">
+          <i class="fa-solid fa-server shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Providers</span>
+          <span id="sidebar-prov-badge" class="shell-count is-zero" title="Registered providers">--</span>
+        </button>
+        <button type="button" onclick="showTab('mc-models')" class="tab-btn shell-nav-item" data-tab="mc-models" title="Models (g then o)" aria-keyshortcuts="g o">
+          <i class="fa-solid fa-cubes shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Models</span>
+          <span id="sidebar-model-badge" class="shell-count is-zero" title="Available models">--</span>
+        </button>
+        <button type="button" onclick="showTab('routing')" class="tab-btn shell-nav-item" data-tab="routing" title="Routing (g then r)" aria-keyshortcuts="g r">
+          <i class="fa-solid fa-route shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Routing</span>
+        </button>
+
+        <div class="shell-nav-heading">Usage &amp; Cost</div>
+        <button type="button" onclick="showTab('tokens')" class="tab-btn shell-nav-item" data-tab="tokens" title="Tokens &amp; cost (g then k)" aria-keyshortcuts="g k">
+          <i class="fa-solid fa-coins shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Tokens &amp; cost</span>
+        </button>
+        <button type="button" onclick="showTab('mc-usage')" class="tab-btn shell-nav-item" data-tab="mc-usage" title="Quotas &amp; budgets (g then u)" aria-keyshortcuts="g u">
+          <i class="fa-solid fa-chart-pie shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Quotas &amp; budgets</span>
+        </button>
+      </nav>
+
+      <!-- Account fleet summary (ids read by renderOverview) -->
+      <details id="shell-fleet" class="shell-fleet" open>
+        <summary title="Account fleet at a glance">Account fleet <i class="fa-solid fa-chevron-down" aria-hidden="true"></i></summary>
+        <div class="shell-fleet-grid">
+          <div class="shell-fleet-cell" title="Every account known to the registry"><b id="mc-metric-registered">0</b><span>Total</span></div>
+          <div class="shell-fleet-cell" title="Accounts with a valid sign-in"><b id="mc-metric-authenticated">0</b><span>Signed in</span></div>
+          <div class="shell-fleet-cell ok" title="Accounts passing health checks"><b id="mc-metric-healthy">0</b><span>Healthy</span></div>
+          <div class="shell-fleet-cell info" title="Accounts online"><b id="mc-metric-online">0</b><span>Online</span></div>
+          <div class="shell-fleet-cell busy" title="Accounts running a task right now"><b id="mc-metric-busy">0</b><span>Busy</span></div>
+          <div class="shell-fleet-cell" title="Online accounts waiting for work"><b id="mc-metric-idle">0</b><span>Idle</span></div>
+          <div class="shell-fleet-cell bad" title="Accounts that are offline"><b id="mc-metric-offline">0</b><span>Offline</span></div>
+          <div class="shell-fleet-cell" title="Accounts turned off by an operator"><b id="mc-metric-disabled">0</b><span>Disabled</span></div>
         </div>
+      </details>
+      <div class="shell-sidebar-foot">
+        <button type="button" class="ui-btn ui-btn-ghost" onclick="openShortcuts()" title="Keyboard shortcuts (?)">
+          <i class="fa-regular fa-keyboard" aria-hidden="true"></i> Shortcuts
+        </button>
+        <button type="button" class="ui-btn ui-btn-ghost sm:hidden" onclick="triggerReconcile()" title="Mark tasks stuck in &quot;running&quot; as stale">
+          <i class="fa-solid fa-broom" aria-hidden="true"></i> Fix stuck
+        </button>
       </div>
     </aside>
 
-    <!-- CONTENT CANVAS WITH GENEROUS SPACING & MODERN MATTE CARDS -->
-    <main class="flex-1 overflow-y-auto p-8 lg:p-10 xl:p-12 bg-[#0A0A0A] space-y-10 max-w-7xl mx-auto w-full">
+    <!-- CONTENT CANVAS -->
+    <main id="main-content" class="shell-main bg-[#0A0A0A]" tabindex="-1">
 
       <!-- 1. DASHBOARD / MISSION OVERVIEW TAB -->
       <section id="tab-dashboard" data-tab="dashboard" class="tab-pane block space-y-8"><div id="dashboard"></div>
@@ -1734,7 +1857,26 @@
     </div>
   </div>
   <!-- TOAST NOTIFICATION CONTAINER -->
-  <div id="toast-container" class="fixed bottom-6 right-6 z-50 space-y-3 pointer-events-none"></div>
+  <div id="toast-container" role="region" aria-label="Notifications"></div>
+  <div id="toast-live-polite" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="toast-live-assertive" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
+
+  <!-- KEYBOARD SHORTCUTS DIALOG -->
+  <div id="shortcuts-modal" class="hidden fixed inset-0 bg-[#000000cc] z-[65] flex items-center justify-center p-4" onclick="if (event.target === this) closeShortcuts()">
+    <div class="ui-card w-full max-w-md shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+      <div class="ui-card-header">
+        <h2 id="shortcuts-title" class="ui-card-title">Keyboard shortcuts</h2>
+        <button type="button" class="shell-icon-btn" onclick="closeShortcuts()" aria-label="Close shortcuts"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      </div>
+      <dl class="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm text-[#D4D4D8]">
+        <dt><kbd class="shell-kbd">/</kbd></dt><dd>Focus this page's search or filter box</dd>
+        <dt><kbd class="shell-kbd">g</kbd> then a letter</dt><dd>Go to a page (hover a sidebar item to see its letter)</dd>
+        <dt><kbd class="shell-kbd">Esc</kbd></dt><dd>Close a dialog, the menu, or leave a text box</dd>
+        <dt><kbd class="shell-kbd">?</kbd></dt><dd>Show this help</dd>
+      </dl>
+      <p class="ui-help mt-4">Pages have their own address, e.g. <span class="ui-mono">#tasks</span>, so you can bookmark them and use Back/Forward.</p>
+    </div>
+  </div>
 
   <!-- CLIENT APPLICATION SCRIPT -->
   <script>
@@ -1782,25 +1924,197 @@
     window._registeredAccounts = [];
 
     // ── Toast Notifications ──────────────────────────────────────
-    function showToast(message, type = 'info') {
-      const container = document.getElementById('toast-container');
-      if (!container) return;
-      const toast = document.createElement('div');
-      const bg = {
-        success: 'bg-emerald-950/90 border-emerald-700 text-emerald-300 shadow-emerald-950/50',
-        error: 'bg-rose-950/90 border-rose-700 text-rose-300 shadow-rose-950/50',
-        warning: 'bg-amber-950/90 border-amber-700 text-amber-300 shadow-amber-950/50',
-        info: 'bg-[#141414] border-[#333333] text-[#FAFAFA] shadow-black/60'
-      }[type] || 'bg-[#141414] border-[#333333] text-[#FAFAFA]';
+    // showToast(message, type) — type: 'success' | 'error' | 'warning' | 'info'.
+    // Errors stay on screen longer; every toast can be dismissed, pauses while
+    // hovered, and is announced to screen readers. Repeats of a toast that is
+    // still visible refresh it instead of stacking a duplicate.
+    const TOAST_DURATION = { success: 4000, info: 4000, warning: 7000, error: 10000 };
+    const TOAST_ICON = { success: 'fa-circle-check', info: 'fa-circle-info', warning: 'fa-triangle-exclamation', error: 'fa-circle-exclamation' };
+    const TOAST_MAX = 4;
 
-      toast.className = `p-3.5 rounded-lg border shadow-xl text-xs font-mono pointer-events-auto transition-all duration-200 ${bg}`;
-      toast.textContent = message;
+    function showToast(message, type = 'info', opts = {}) {
+      const container = document.getElementById('toast-container');
+      if (!container) return null;
+      if (!TOAST_DURATION[type]) type = 'info';
+      const text = String(message ?? '');
+
+      const live = document.getElementById(type === 'error' ? 'toast-live-assertive' : 'toast-live-polite');
+      if (live) { live.textContent = ''; setTimeout(() => { live.textContent = text; }, 30); }
+
+      const existing = Array.from(container.children).find(t => t._toastKey === type + '|' + text);
+      if (existing) { existing._restart(); return existing; }
+
+      const toast = document.createElement('div');
+      toast.className = `ui-toast ui-toast-${type}`;
+      toast._toastKey = type + '|' + text;
+      toast.innerHTML = `<i class="fa-solid ${TOAST_ICON[type]} ui-toast-icon" aria-hidden="true"></i>
+        <div class="ui-toast-msg"></div>
+        <button type="button" class="ui-toast-close" aria-label="Dismiss notification" title="Dismiss"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
+      toast.querySelector('.ui-toast-msg').textContent = text;
+
+      const duration = opts.duration || TOAST_DURATION[type];
+      let timer = null;
+      const dismiss = () => {
+        clearTimeout(timer);
+        if (toast._leaving) return;
+        toast._leaving = true;
+        toast.classList.add('is-leaving');
+        setTimeout(() => toast.remove(), 220);
+      };
+      toast._restart = () => { clearTimeout(timer); if (duration !== Infinity) timer = setTimeout(dismiss, duration); };
+      toast._dismiss = dismiss;
+      toast.querySelector('.ui-toast-close').addEventListener('click', dismiss);
+      toast.addEventListener('mouseenter', () => clearTimeout(timer));
+      toast.addEventListener('mouseleave', () => toast._restart());
+      toast.addEventListener('focusin', () => clearTimeout(timer));
+      toast.addEventListener('focusout', () => toast._restart());
+
       container.appendChild(toast);
-      setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateY(6px)';
-        setTimeout(() => toast.remove(), 250);
-      }, 3500);
+      while (container.children.length > TOAST_MAX) {
+        const oldest = container.firstElementChild;
+        if (oldest._dismiss) oldest._dismiss(); else oldest.remove();
+        if (oldest.parentNode) oldest.remove();
+      }
+      toast._restart();
+      return toast;
+    }
+
+    // ── Connection state: API reachability + live stream ──────────
+    // One place decides what the header "live" pill says, so a dead server or
+    // an expired session is visible instead of the UI silently going stale.
+    const shellConn = { api: 'unknown', sse: 'connecting', lastUpdated: 0, bannerReason: null, sseRetry: 0, sseTimer: null };
+
+    function setShellBanner(reason, message, tone = 'warn') {
+      const banner = document.getElementById('shell-banner');
+      const text = document.getElementById('shell-banner-text');
+      if (!banner || !text) return;
+      shellConn.bannerReason = reason;
+      banner.dataset.tone = tone;
+      text.textContent = message;
+      banner.hidden = false;
+    }
+
+    function clearShellBanner(reason) {
+      if (reason && shellConn.bannerReason !== reason) return;
+      const banner = document.getElementById('shell-banner');
+      if (banner) banner.hidden = true;
+      shellConn.bannerReason = null;
+    }
+
+    function formatUpdatedAgo(ts) {
+      if (!ts) return '';
+      const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+      if (s < 5) return 'updated just now';
+      if (s < 60) return `updated ${s}s ago`;
+      return 'updated ' + ((window.ui && ui.relTime) ? ui.relTime(ts) : Math.round(s / 60) + ' min ago');
+    }
+
+    function renderLiveStatus() {
+      const pill = document.getElementById('live-status');
+      const label = document.getElementById('stream-indicator-text');
+      const time = document.getElementById('last-updated');
+      const pip = document.getElementById('sidebar-live-pip');
+      let state, text, hint;
+      if (shellConn.api === 'offline') {
+        state = 'offline'; text = 'Offline'; hint = 'The dashboard server is not responding. Retrying automatically.';
+      } else if (shellConn.api === 'auth') {
+        state = 'offline'; text = 'Signed out'; hint = 'The dashboard session token was rejected. Use Retry to get a new one.';
+      } else if (shellConn.sse === 'live') {
+        state = 'live'; text = 'Live'; hint = 'Connected. Events stream in live and data refreshes every 3 seconds.';
+      } else if (shellConn.sse === 'reconnecting') {
+        state = 'reconnecting'; text = 'Reconnecting…'; hint = 'The live event stream dropped and is reconnecting. Data still refreshes every 3 seconds.';
+      } else if (shellConn.sse === 'offline' && shellConn.api === 'ok') {
+        state = 'polling'; text = 'Polling'; hint = 'Live event stream unavailable; refreshing every 3 seconds instead.';
+      } else {
+        state = 'connecting'; text = 'Connecting…'; hint = 'Connecting to the dashboard server…';
+      }
+      if (pill) {
+        pill.dataset.state = state;
+        const ago = formatUpdatedAgo(shellConn.lastUpdated);
+        pill.title = hint + (shellConn.lastUpdated ? ` Last ${ago.replace('updated ', 'update ')} (${new Date(shellConn.lastUpdated).toLocaleTimeString()}).` : '');
+      }
+      if (label && label.textContent !== text) label.textContent = text;
+      if (time) time.textContent = shellConn.lastUpdated ? '· ' + formatUpdatedAgo(shellConn.lastUpdated) : '';
+      if (pip) { pip.dataset.state = shellConn.sse === 'live' ? 'live' : (shellConn.sse === 'offline' ? 'offline' : 'reconnecting'); pip.title = 'Live stream: ' + (shellConn.sse === 'live' ? 'connected' : shellConn.sse); }
+    }
+
+    function markApiOk() {
+      shellConn.lastUpdated = Date.now();
+      clearShellBanner('api');
+      if (!authToken) {
+        // Reads can succeed without a session, but actions and the live stream
+        // cannot: keep the "no session" state visible until a token is obtained.
+        if (shellConn.api !== 'auth') markAuthFailed('no session token');
+        renderLiveStatus();
+        return;
+      }
+      const wasDown = shellConn.api === 'offline' || shellConn.api === 'auth';
+      shellConn.api = 'ok';
+      clearShellBanner('auth');
+      if (wasDown) {
+        showToast('Reconnected to the dashboard server', 'success');
+        if (shellConn.sse !== 'live') initEventStream();
+      }
+      renderLiveStatus();
+    }
+
+    function markApiOffline(err) {
+      const wasOk = shellConn.api !== 'offline';
+      shellConn.api = 'offline';
+      setShellBanner('api', "Can't reach the dashboard server. The data on screen may be out of date; retrying every few seconds.", 'error');
+      if (wasOk) showToast("Can't reach the dashboard server", 'error');
+      renderLiveStatus();
+      if (err) console.debug('API unreachable:', err);
+    }
+
+    function markAuthFailed(detail) {
+      const wasOk = shellConn.api !== 'auth';
+      shellConn.api = 'auth';
+      setShellBanner('auth', `Couldn't start a dashboard session${detail ? ' (' + detail + ')' : ''}. Actions and live data are unavailable until this is fixed.`, 'error');
+      if (wasOk) showToast("Couldn't get a dashboard session token", 'error');
+      renderLiveStatus();
+    }
+
+    async function retryConnection(btn) {
+      const run = async () => {
+        authToken = '';
+        await initAuth();
+        if (authToken) {
+          await refreshData();
+          initEventStream();
+        }
+      };
+      if (btn && window.ui && ui.busy) await ui.busy(btn, run); else await run();
+    }
+
+    async function manualRefresh(btn) {
+      const run = async () => { await refreshData(); };
+      if (btn && window.ui && ui.busy) await ui.busy(btn, run); else await run();
+      if (shellConn.api === 'ok') showToast('Data refreshed', 'success');
+    }
+
+    // Sidebar counts from the status payload refreshData already fetches, so the
+    // badges are populated before their tab has ever been opened.
+    function updateShellBadges(status) {
+      const mc = (status && status.mission_control) || {};
+      const set = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.textContent = v; };
+      set('sidebar-prov-badge', mc.providers_total);
+      set('sidebar-acct-badge', mc.accounts_total ?? status.registered_accounts);
+      set('sidebar-model-badge', mc.models_available);
+      set('sidebar-jobs-badge', mc.active_jobs);
+      set('sidebar-memory-badge', status.memories_count);
+    }
+
+    // Grey out zero / unknown counts so non-zero ones stand out.
+    function watchCountBadges() {
+      const sync = (el) => {
+        const t = (el.textContent || '').trim();
+        el.classList.toggle('is-zero', t === '' || t === '0' || t === '--');
+      };
+      document.querySelectorAll('.shell-count').forEach(el => {
+        sync(el);
+        new MutationObserver(() => sync(el)).observe(el, { childList: true, characterData: true, subtree: true });
+      });
     }
 
     // ── Authentication & Mutating Calls ──────────────────────────
@@ -1815,9 +2129,14 @@
           if (res.ok) {
             const data = await res.json();
             authToken = data.token || '';
+            if (authToken) clearShellBanner('auth');
+            else markAuthFailed('the server returned an empty token');
+          } else {
+            markAuthFailed(`HTTP ${res.status}`);
           }
         } catch (err) {
-          console.error('Failed to retrieve dashboard session token:', err);
+          console.warn('Failed to retrieve dashboard session token:', err);
+          markApiOffline(err);
         } finally {
           authPromise = null;
         }
@@ -1870,7 +2189,26 @@
     };
 
     // ── Tab Navigation (showTab) ─────────────────────────────────
-    function showTab(tabId) {
+    // Labels shown in the header for each tab; keys are the data-tab values.
+    const SHELL_TABS = {
+      'dashboard':    ['Overview', 'Pipeline, fleet and routing at a glance'],
+      'events':       ['Activity log', 'Every event from agents and tasks, as it happens'],
+      'flow':         ['Execution flow', 'How a task moves from intake to result'],
+      'tasks':        ['Tasks', 'Queued, running, finished and failed tasks'],
+      'mc-jobs':      ['Jobs', 'Scheduled and running jobs'],
+      'worktrees':    ['Sandboxes', 'Isolated git worktrees used by headless agents'],
+      'memory':       ['Shared memory', 'What every agent remembers and hands off'],
+      'agents':       ['Agents', 'Worker agents and their current state'],
+      'mc-accounts':  ['Accounts', 'Sign-ins and API keys used by agents'],
+      'mc-providers': ['Providers', 'AI services the swarm can route work to'],
+      'mc-models':    ['Models', 'Models available to the router'],
+      'routing':      ['Routing', 'Why each task went to the agent it did'],
+      'tokens':       ['Tokens & cost', 'Token usage and spend by agent'],
+      'mc-usage':     ['Quotas & budgets', 'Limits that keep usage and cost in check'],
+    };
+
+    function showTab(tabId, opts = {}) {
+      if (!document.getElementById('tab-' + tabId)) tabId = 'dashboard';
       currentTab = tabId;
       document.querySelectorAll('.tab-pane').forEach(el => {
         el.classList.add('hidden');
@@ -1884,10 +2222,26 @@
       document.querySelectorAll('.tab-btn').forEach(btn => {
         if (btn.getAttribute('data-tab') === tabId) {
           btn.classList.add('tab-active');
+          btn.setAttribute('aria-current', 'page');
         } else {
           btn.classList.remove('tab-active');
+          btn.removeAttribute('aria-current');
         }
       });
+
+      // Header title, document title and deep link (#tab) for back/forward + reload.
+      const meta = SHELL_TABS[tabId] || [tabId, ''];
+      const titleEl = document.getElementById('shell-page-title');
+      const descEl = document.getElementById('shell-page-desc');
+      if (titleEl) titleEl.textContent = meta[0];
+      if (descEl) descEl.textContent = meta[1];
+      document.title = `${meta[0]} · Mission Control`;
+      if (!opts.fromHash && location.hash !== '#' + tabId) {
+        try { history.pushState({ tab: tabId }, '', '#' + tabId); } catch (e) {}
+      }
+      const main = document.getElementById('main-content');
+      if (main) main.scrollTop = 0;
+      closeSidebar({ restoreFocus: false });
 
       // Lazy load tab data
       if (tabId === 'mc-providers') loadProviders();
@@ -1911,14 +2265,85 @@
     }
 
     function focusQuickSearch() {
-      const el = document.getElementById('quick-instruction');
-      if (el) el.focus();
+      if (currentTab !== 'dashboard') showTab('dashboard');
+      closeSidebar({ restoreFocus: false });
+      requestAnimationFrame(() => {
+        const el = document.getElementById('quick-instruction');
+        if (el) { el.focus(); el.scrollIntoView({ block: 'center' }); }
+      });
     }
+
+    // "/" focuses the visible tab's search/filter box. Tabs can opt a field in
+    // explicitly with data-shortcut-search; otherwise the first visible input
+    // whose id mentions search/filter wins. Overview uses the dispatch box.
+    function focusTabSearch() {
+      const pane = document.getElementById('tab-' + currentTab);
+      if (!pane) return false;
+      const candidates = pane.querySelectorAll('[data-shortcut-search], input[type="search"], input[id*="search"], input[id*="filter"], #quick-instruction');
+      const el = Array.from(candidates).find(c => c.offsetParent !== null && !c.disabled);
+      if (!el) return false;
+      el.focus();
+      if (el.select) el.select();
+      return true;
+    }
+
+    // ── Sidebar drawer (below 1024px) ────────────────────────────
+    const _drawerMedia = window.matchMedia('(max-width: 1023.98px)');
+    function isSidebarOpen() { return document.body.classList.contains('sidebar-open'); }
+    function openSidebar() {
+      if (!_drawerMedia.matches) return;
+      document.body.classList.add('sidebar-open');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      if (backdrop) backdrop.hidden = false;
+      const toggle = document.getElementById('sidebar-toggle');
+      if (toggle) { toggle.setAttribute('aria-expanded', 'true'); toggle.setAttribute('aria-label', 'Close navigation'); }
+      const active = document.querySelector('#main-sidebar .tab-active') || document.querySelector('#main-sidebar .tab-btn');
+      if (active) setTimeout(() => active.focus(), 30);
+    }
+    function closeSidebar(opts = {}) {
+      if (!isSidebarOpen()) return;
+      document.body.classList.remove('sidebar-open');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      if (backdrop) backdrop.hidden = true;
+      const toggle = document.getElementById('sidebar-toggle');
+      if (toggle) {
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-label', 'Open navigation');
+        if (opts.restoreFocus !== false) toggle.focus();
+      }
+    }
+    function toggleSidebar() { if (isSidebarOpen()) closeSidebar(); else openSidebar(); }
+    _drawerMedia.addEventListener('change', (e) => { if (!e.matches) closeSidebar({ restoreFocus: false }); });
+
+    function openShortcuts() {
+      closeSidebar({ restoreFocus: false });
+      const m = document.getElementById('shortcuts-modal');
+      if (!m) return;
+      m.classList.remove('hidden');
+      const btn = m.querySelector('button');
+      if (btn) btn.focus();
+    }
+    function closeShortcuts() {
+      const m = document.getElementById('shortcuts-modal');
+      if (m) m.classList.add('hidden');
+    }
+
+    window.addEventListener('hashchange', () => {
+      const tab = decodeURIComponent(location.hash.slice(1));
+      if (tab && tab !== currentTab && document.getElementById('tab-' + tab)) showTab(tab, { fromHash: true });
+    });
 
     // ── Keyboard Navigation (g+letter & / search) ────────────────
     let gPressed = false;
     let gTimeout = null;
     window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // The mobile navigation drawer closes first on Escape.
+      if (e.key === 'Escape' && isSidebarOpen()) {
+        e.preventDefault();
+        closeSidebar();
+        return;
+      }
       // Guard: when ANY modal is currently open, disable all shortcuts
       const openModal = document.querySelector('.fixed.inset-0:not(.hidden)');
       if (openModal) {
@@ -1928,7 +2353,7 @@
         return;
       }
 
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) {
         if (e.key === 'Escape') {
           e.target.blur();
           closeAllModals();
@@ -1936,8 +2361,12 @@
         return;
       }
       if (e.key === '/') {
+        if (focusTabSearch()) e.preventDefault();
+        return;
+      }
+      if (e.key === '?') {
         e.preventDefault();
-        focusQuickSearch();
+        openShortcuts();
         return;
       }
       if (e.key === 'Escape') {
@@ -1978,7 +2407,7 @@
     });
 
     function closeAllModals() {
-      ['diff-modal', 'task-modal', 'add-provider-modal', 'add-account-modal', 'remove-account-modal', 'wizard-modal', 'add-quota-modal', 'routing-inspect-modal', 'edit-model-modal'].forEach(id => {
+      ['diff-modal', 'task-modal', 'add-provider-modal', 'add-account-modal', 'remove-account-modal', 'wizard-modal', 'add-quota-modal', 'routing-inspect-modal', 'edit-model-modal', 'shortcuts-modal'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
       });
@@ -1989,17 +2418,27 @@
       if (eventSource) {
         eventSource.close();
       }
+      clearTimeout(shellConn.sseTimer);
+      if (!authToken) {
+        // No session yet: try again shortly instead of opening a stream that 401s.
+        shellConn.sse = 'offline';
+        renderLiveStatus();
+        scheduleStreamReconnect();
+        return;
+      }
+      shellConn.sse = shellConn.sse === 'live' ? 'reconnecting' : shellConn.sse;
       const sseUrl = `/api/events/stream?token=${encodeURIComponent(authToken)}`;
       eventSource = new EventSource(sseUrl);
 
       eventSource.onopen = () => {
+        shellConn.sse = 'live';
+        shellConn.sseRetry = 0;
+        renderLiveStatus();
         const pill = document.getElementById('stream-status-pill');
         if (pill) {
           pill.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2 bg-emerald-950 text-emerald-400 border border-emerald-800';
           pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> LIVE STREAMING';
         }
-        const ind = document.getElementById('stream-indicator-text');
-        if (ind) ind.textContent = 'SSE CONNECTED';
       };
 
       eventSource.onerror = () => {
@@ -2008,8 +2447,15 @@
           pill.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2 bg-amber-950 text-amber-400 border border-amber-800';
           pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> RECONNECTING';
         }
-        const ind = document.getElementById('stream-indicator-text');
-        if (ind) ind.textContent = 'SSE RECONNECTING';
+        // The browser retries on its own while CONNECTING; once CLOSED (e.g. the
+        // token was rejected) it gives up, so reconnect ourselves with backoff.
+        if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+          shellConn.sse = 'offline';
+          scheduleStreamReconnect();
+        } else {
+          shellConn.sse = 'reconnecting';
+        }
+        renderLiveStatus();
       };
 
       eventSource.onmessage = (e) => {
@@ -2021,6 +2467,15 @@
           console.error('SSE parse error:', err);
         }
       };
+    }
+
+    function scheduleStreamReconnect() {
+      clearTimeout(shellConn.sseTimer);
+      const delay = Math.min(30000, 2000 * Math.pow(2, shellConn.sseRetry++));
+      shellConn.sseTimer = setTimeout(async () => {
+        if (!authToken) await initAuth();
+        initEventStream();
+      }, delay);
     }
 
     function toggleEventStream() {
@@ -2284,12 +2739,21 @@
           fetchWithAuth('/api/agents'),
         ]);
 
+        if (statusRes.status === 401 || statusRes.status === 403) {
+          // Session token rejected (e.g. the server restarted with a new one).
+          authToken = '';
+          markAuthFailed(`HTTP ${statusRes.status}`);
+          return;
+        }
+        markApiOk();
+
         let status = {}, metrics = {}, tasks = {}, agents = {};
         if (statusRes.ok) status = await statusRes.json();
         if (metricsRes.ok) metrics = await metricsRes.json();
         if (tasksRes.ok) tasks = await tasksRes.json();
         if (agentsRes.ok) agents = await agentsRes.json();
 
+        updateShellBadges(status);
         renderOverview(status, metrics);
         renderAgents(agents);
         renderTasks(tasks);
@@ -2301,7 +2765,11 @@
         // active tab so the 3s poll does not fetch every endpoint in the app.
         refreshActiveSection();
       } catch (err) {
-        console.error('refreshData error:', err);
+        if (err instanceof TypeError && /fetch|network|load/i.test(err.message || '')) {
+          markApiOffline(err);
+        } else {
+          console.error('refreshData error:', err);
+        }
       }
     }
 
@@ -5735,16 +6203,50 @@
     }
 
     // ── Application Startup ───────────────────────────────────────
+    // Poll every 3s while the page is visible; skip a tick if the previous
+    // refresh is still running, and refresh immediately on returning to the tab.
+    let _pollInFlight = false;
+    async function pollTick() {
+      if (document.hidden || _pollInFlight) return;
+      _pollInFlight = true;
+      try { await refreshData(); } finally { _pollInFlight = false; }
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollTick(); });
+    setInterval(renderLiveStatus, 5000);
+
+    watchCountBadges();
+    // Account fleet panel: remember open/closed; collapsed by default on short screens.
+    (() => {
+      const fleet = document.getElementById('shell-fleet');
+      if (!fleet) return;
+      let saved = null;
+      try { saved = localStorage.getItem('mc.shell.fleetOpen'); } catch (e) {}
+      fleet.open = saved === null ? window.innerHeight >= 960 : saved === '1';
+      fleet.addEventListener('toggle', () => {
+        try { localStorage.setItem('mc.shell.fleetOpen', fleet.open ? '1' : '0'); } catch (e) {}
+      });
+    })();
+    {
+      const initialTab = decodeURIComponent(location.hash.slice(1));
+      if (initialTab && initialTab !== 'dashboard' && document.getElementById('tab-' + initialTab)) {
+        showTab(initialTab, { fromHash: true });
+      } else {
+        showTab('dashboard', { fromHash: true });
+      }
+    }
+    renderLiveStatus();
+
     initAuth().then(() => {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('oauth_complete')) {
         const acct = urlParams.get('account_id') || 'Account';
-        showToast(`OAuth Complete! ${acct} is ONLINE.`, 'success');
-        try { history.replaceState(null, '', window.location.pathname); } catch (e) {}
+        showToast(`Sign-in complete: ${acct} is online.`, 'success');
+        try { history.replaceState(null, '', window.location.pathname + window.location.hash); } catch (e) {}
       }
-      refreshData();
+      // showTab() above already refreshed Overview; other tabs still need the shared data.
+      if (currentTab !== 'dashboard') refreshData();
       initEventStream();
-      pollingInterval = setInterval(refreshData, 3000);
+      pollingInterval = setInterval(pollTick, 3000);
     });
   </script>
 </body>
