@@ -1,0 +1,321 @@
+{
+  "version": "2.0.0",
+  "notes": [
+    "HERMETIC TEST FIXTURE. The test suite reads this (via BRAIN_PROVIDERS_CONFIG, set in tests/support/hermetic.py) instead of the live config/providers.json, so tests are independent of accounts an operator registers and never write to the real file. Keep it in sync with the canonical accounts the tests assert on.",
+    "Single source of truth for provider, account, execution and model configuration.",
+    "No adapter may hard-code a CLI flag, profile directory or model id.",
+    "Antigravity model lists were enumerated live with `agy --app_data_dir=<dir> models`.",
+    "dangerously_skip_permissions is false everywhere: headless execution was verified to succeed without it."
+  ],
+  "concurrency": {
+    "max_concurrent_agents": 3,
+    "rationale": "3 CPU-bounded concurrent workers across isolated Antigravity accounts; bounded to avoid oversubscription."
+  },
+  "providers": {
+    "antigravity": {
+      "id": "antigravity",
+      "name": "Google Antigravity",
+      "description": "Autonomous multi-agent execution across isolated account profiles",
+      "enabled": true,
+      "command": "~/.gemini/bin/agy",
+      "fallback_commands": [
+        "~/.local/bin/agy",
+        "~/.local/bin/antigravity",
+        "/usr/local/bin/antigravity"
+      ],
+      "profile_root": "~/.gemini",
+      "accounts": {
+        "antigravity-account-1": {
+          "agent_id": "antigravity-account-1",
+          "account_id": "account-1",
+          "enabled": true,
+          "description": "First Antigravity account (user@example.com); master architect and deep reasoning",
+          "execution": {
+            "command": "~/.gemini/bin/agy",
+            "app_data_dir": "antigravity-account-jadhav",
+            "output_format": "json",
+            "dangerously_skip_permissions": false,
+            "default_timeout_seconds": 300
+          },
+          "capabilities": [
+            "architecture",
+            "protocol-design",
+            "governance",
+            "deep-reasoning",
+            "documentation"
+          ],
+          "models": [
+            "gemini-3.1-pro-high",
+            "gemini-3.1-pro-low",
+            "claude-opus-4-6-thinking",
+            "claude-sonnet-4-6",
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-low",
+            "gemini-3.7-flash-high",
+            "gemini-3.7-flash-medium",
+            "gemini-3.7-flash-low",
+            "gemini-3.6-flash-high",
+            "gemini-3.6-flash-medium",
+            "gemini-3.6-flash-low",
+            "gpt-oss-120b-medium"
+          ],
+          "default_model": "gemini-3.8-flash-medium"
+        },
+        "antigravity-account-2": {
+          "agent_id": "antigravity-account-2",
+          "account_id": "account-2",
+          "enabled": true,
+          "description": "Second Antigravity account (user@example.com); multi-file refactoring, component work and code review",
+          "execution": {
+            "command": "~/.gemini/bin/agy",
+            "app_data_dir": "antigravity-account-3",
+            "output_format": "json",
+            "dangerously_skip_permissions": false,
+            "default_timeout_seconds": 300
+          },
+          "capabilities": [
+            "editor-refactoring",
+            "component-refactoring",
+            "code-review",
+            "architecture",
+            "deep-reasoning",
+            "test-scaffolding"
+          ],
+          "models": [
+            "gemini-3.1-pro-high",
+            "gemini-3.1-pro-low",
+            "claude-opus-4-6-thinking",
+            "claude-sonnet-4-6",
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-low",
+            "gemini-3.7-flash-high",
+            "gemini-3.7-flash-medium",
+            "gemini-3.7-flash-low",
+            "gemini-3.6-flash-high",
+            "gemini-3.6-flash-medium",
+            "gemini-3.6-flash-low",
+            "gpt-oss-120b-medium"
+          ],
+          "default_model": "gemini-3.8-flash-medium"
+        },
+        "antigravity-account-3": {
+          "agent_id": "antigravity-account-3",
+          "account_id": "account-3",
+          "enabled": true,
+          "description": "Third Antigravity account (user@example.com); autonomous implementation, synthesis and verification",
+          "execution": {
+            "command": "~/.gemini/bin/agy",
+            "app_data_dir": "antigravity-account-yash",
+            "output_format": "json",
+            "dangerously_skip_permissions": false,
+            "default_timeout_seconds": 300
+          },
+          "capabilities": [
+            "deep-reasoning",
+            "component-refactoring",
+            "code-review",
+            "architecture",
+            "documentation"
+          ],
+          "models": [
+            "gemini-3.1-pro-high",
+            "gemini-3.1-pro-low",
+            "claude-opus-4-6-thinking",
+            "claude-sonnet-4-6",
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-medium",
+            "gemini-3.8-flash-low",
+            "gemini-3.7-flash-high",
+            "gemini-3.7-flash-medium",
+            "gemini-3.7-flash-low",
+            "gemini-3.6-flash-high",
+            "gemini-3.6-flash-medium",
+            "gemini-3.6-flash-low",
+            "gpt-oss-120b-medium"
+          ],
+          "default_model": "gemini-3.8-flash-medium"
+        }
+      }
+    },
+    "kiro": {
+      "id": "kiro",
+      "name": "Kiro",
+      "description": "Headless command-line agent for terminal operations, cloud reads and testing",
+      "enabled": true,
+      "command": "~/.local/bin/kiro-cli",
+      "models_verified_with": "kiro-cli chat --model <invalid> (the CLI lists valid ids in its error)",
+      "accounts": {
+        "kiro-cli": {
+          "agent_id": "kiro-cli",
+          "account_id": "cli",
+          "enabled": true,
+          "capabilities": [
+            "terminal-operations",
+            "local-validation",
+            "build-and-test",
+            "cloud-read-only",
+            "kubernetes-read-only"
+          ],
+          "models": [
+            "auto",
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "claude-sonnet-4.6",
+            "claude-sonnet-4.5",
+            "claude-sonnet-4",
+            "claude-haiku-4.5",
+            "deepseek-3.2",
+            "minimax-m2.5",
+            "minimax-m2.1",
+            "glm-5",
+            "qwen3-coder-next"
+          ],
+          "default_model": "auto"
+        }
+      }
+    },
+    "cline": {
+      "id": "cline",
+      "name": "Cline",
+      "description": "Headless focused-coding and UI styling agent",
+      "enabled": true,
+      "command": "~/.local/bin/cline",
+      "models_verified_with": "Verified live from ~/.cline/data/settings/providers.json and CLI execution",
+      "model_capabilities": [
+        {
+          "id": "anthropic/claude-fable-5.1",
+          "name": "Claude Fable 5.1 (Anthropic)",
+          "availability": "configured",
+          "billing": "standard",
+          "reason": "Active configured model in Cline account 1 and account 2"
+        },
+        {
+          "id": "deepseek/deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "availability": "free",
+          "billing": "free",
+          "reason": "Cline OAuth free usage billing ($0.00 cost)"
+        },
+        {
+          "id": "z-ai/glm-5.3-flash",
+          "name": "GLM 5.3 Flash",
+          "availability": "active",
+          "billing": "standard",
+          "reason": "Active primary model in system profile"
+        },
+        {
+          "id": "auto",
+          "name": "Auto (Active Provider Model)",
+          "availability": "free",
+          "billing": "free",
+          "reason": "Auto-selects active provider configured model"
+        }
+      ],
+      "accounts": {
+        "cline-account-1": {
+          "agent_id": "cline-account-1",
+          "account_id": "account-1",
+          "enabled": true,
+          "config_dir": "~/.mission-control/cline/account-1/config",
+          "data_dir": "~/.mission-control/cline/account-1/data",
+          "capabilities": [
+            "editor-refactoring",
+            "frontend-styling",
+            "component-refactoring",
+            "code-review"
+          ],
+          "models": [
+            "anthropic/claude-fable-5.1",
+            "deepseek/deepseek-v4-flash",
+            "auto"
+          ],
+          "default_model": "anthropic/claude-fable-5.1"
+        },
+        "cline-account-2": {
+          "agent_id": "cline-account-2",
+          "account_id": "account-2",
+          "enabled": true,
+          "config_dir": "~/.mission-control/cline/account-2/config",
+          "data_dir": "~/.mission-control/cline/account-2/data",
+          "capabilities": [
+            "editor-refactoring",
+            "frontend-styling",
+            "component-refactoring",
+            "code-review"
+          ],
+          "models": [
+            "anthropic/claude-fable-5.1",
+            "deepseek/deepseek-v4-flash",
+            "auto"
+          ],
+          "default_model": "anthropic/claude-fable-5.1"
+        },
+        "cline-account-3": {
+          "agent_id": "cline-account-3",
+          "account_id": "account-3",
+          "enabled": true,
+          "config_dir": "~/.mission-control/cline/account-3/config",
+          "data_dir": "~/.mission-control/cline/account-3/data",
+          "capabilities": [
+            "editor-refactoring",
+            "frontend-styling",
+            "component-refactoring",
+            "code-review"
+          ],
+          "models": [
+            "deepseek/deepseek-v4-flash",
+            "auto"
+          ],
+          "default_model": "deepseek/deepseek-v4-flash"
+        }
+      }
+    },
+    "ollama": {
+      "id": "ollama",
+      "name": "Ollama (local)",
+      "description": "Local model server. Category C (LOCAL) provider. Unauthenticated by default; no credential reference required.",
+      "type": "ollama",
+      "enabled": false,
+      "enabled_reason": "Ollama daemon is not installed on this machine. Set enabled=true after `ollama serve` is reachable at base_url.",
+      "base_url": "http://localhost:11434/v1",
+      "native_api_url": "http://localhost:11434/api",
+      "default_model": "llama3.2",
+      "models": [],
+      "models_verified_with": "GET /api/tags on the running daemon; never hard-coded",
+      "credential_ref": "",
+      "accounts": {}
+    },
+    "openai": {
+      "id": "openai",
+      "name": "Openai",
+      "enabled": true,
+      "accounts": {
+        "openai-generic-1": {
+          "agent_id": "openai-generic-1",
+          "account_id": "generic-1",
+          "provider_id": "openai",
+          "enabled": true,
+          "authentication_type": "api_key",
+          "credential_reference": "secret://mission-control/openai/generic-1",
+          "models": [],
+          "capabilities": [
+            "chat",
+            "streaming"
+          ]
+        }
+      }
+    }
+  },
+  "future_providers": {
+    "note": "Not implemented. Documents the registration lifecycle a new ProviderAdapter follows so the core brain never changes: REGISTER -> AUTHENTICATE -> HEALTH CHECK -> DISCOVER MODELS -> DISCOVER CAPABILITIES -> REGISTER AGENT -> ROUTER -> MISSION CONTROL.",
+    "gemini-api": {
+      "enabled": false,
+      "status": "not-implemented"
+    }
+  }
+}

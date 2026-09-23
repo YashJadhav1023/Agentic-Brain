@@ -3,7 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
-from agents.antigravity.adapter import DEFAULT_CONFIG_PATH
+from providers.registry.config import resolve_config_path
 from agents.base.adapter import UNKNOWN_MODEL
 from models.policies.model_policy import (
     AGENT_CATALOGS,
@@ -49,7 +49,7 @@ class TestModelPolicy(unittest.TestCase):
 
     def test_account2_catalog_matches_configured_models(self):
         """Catalogue and config must agree; both were verified against the CLI."""
-        config = json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+        config = json.loads(resolve_config_path().read_text(encoding="utf-8"))
         configured = set(
             config["providers"]["antigravity"]["accounts"]["antigravity-account-2"]["models"]
         )
