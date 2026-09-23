@@ -164,7 +164,7 @@
             "command": "~/.gemini/bin/agy",
             "app_data_dir": "antigravity-account-2077",
             "output_format": "json",
-            "dangerously_skip_permissions": true,
+            "dangerously_skip_permissions": false,
             "default_timeout_seconds": 300
           }
         },
@@ -206,7 +206,7 @@
           "display_name": "Antigravity Worker 2078",
           "credential_reference": "",
           "authentication_type": "api_key",
-          "enabled": true,
+          "enabled": false,
           "priority": 10,
           "models": [],
           "capabilities": [],
