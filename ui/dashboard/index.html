@@ -399,374 +399,561 @@
     <!-- CONTENT CANVAS WITH GENEROUS SPACING & MODERN MATTE CARDS -->
     <main class="flex-1 overflow-y-auto p-8 lg:p-10 xl:p-12 bg-[#0A0A0A] space-y-10 max-w-7xl mx-auto w-full">
 
+      <!-- Scoped styles for the operations tabs (dashboard, agents, flow, tasks,
+           events, memory). Everything is prefixed `ops-` so it cannot collide
+           with the shared ui-kit or with other tabs. -->
+      <style id="ops-ui-styles">
+        #tab-dashboard, #tab-agents, #tab-flow, #tab-tasks, #tab-events, #tab-memory { min-width: 0; }
+        .ops-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+        .ops-grow { flex: 1 1 0%; min-width: min(100%, 12rem); }
+        .ops-grow-wide { flex-grow: 2; min-width: min(100%, 16rem); }
+        .ops-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+        @media (min-width: 768px) { .ops-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1280px) { .ops-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+        .ops-stats-4 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+        @media (min-width: 768px) { .ops-stats-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+        .ops-stat-link { text-align: left; width: 100%; cursor: pointer; transition: border-color .15s, background-color .15s; }
+        .ops-stat-link:hover { border-color: var(--ui-border-strong); background: var(--ui-surface-2); }
+        .ops-stat-link .ui-stat-value { font-size: 1.35rem; overflow-wrap: anywhere; }
+        .ops-tone-ok { color: var(--ui-ok) !important; }
+        .ops-tone-bad { color: var(--ui-bad) !important; }
+        .ops-tone-warn { color: var(--ui-warn) !important; }
+        .ops-hero { border-color: #3F3F46; background: linear-gradient(135deg, rgba(99,102,241,.08), rgba(18,18,18,1) 55%); }
+        .ops-eyebrow { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ui-text-muted); }
+        .ops-next { font-size: 1.05rem; font-weight: 600; color: #fff; line-height: 1.45; overflow-wrap: anywhere; margin-top: .35rem; }
+        .ops-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .9rem; font-size: .78rem; color: var(--ui-text-muted); }
+        .ops-meta strong { color: var(--ui-text); font-weight: 600; }
+        .ops-text { overflow-wrap: anywhere; word-break: break-word; }
+        .ops-pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+        .ops-id { font-family: "JetBrains Mono", monospace; font-size: .72rem; color: #A5B4FC; background: none; border: 0; padding: 0;
+                  cursor: copy; text-decoration: underline dotted rgba(165,180,252,.45); text-underline-offset: 3px; white-space: nowrap; }
+        .ops-id:hover { color: #C7D2FE; }
+        .ops-chip { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .5rem; border-radius: 6px; font-size: .7rem;
+                    background: var(--ui-surface-2); border: 1px solid var(--ui-border); color: var(--ui-text-muted); white-space: nowrap; }
+        .ops-field-error { color: #FCA5A5; font-size: .75rem; margin-top: .3rem; }
+        .ops-invalid { border-color: var(--ui-bad) !important; }
+        .ops-mark { background: rgba(245,158,11,.28); color: #FDE68A; border-radius: 2px; padding: 0 1px; }
+        .ops-clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+        .ops-seg { display: inline-flex; padding: .2rem; gap: .2rem; border-radius: 9px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); }
+        .ops-seg button { padding: .4rem .8rem; border-radius: 7px; font-size: .78rem; font-weight: 600; color: var(--ui-text-muted); }
+        .ops-seg button[aria-pressed="true"] { background: #FAFAFA; color: #0A0A0A; }
+        .ops-seg button:not([aria-pressed="true"]):hover { color: var(--ui-text); background: var(--ui-surface-3); }
+        .ops-col-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding-bottom: .6rem;
+                        margin-bottom: .75rem; border-bottom: 1px solid var(--ui-border); }
+        .ops-col-count { font-size: .72rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; background: var(--ui-surface-2);
+                         border: 1px solid var(--ui-border); color: var(--ui-text); font-variant-numeric: tabular-nums; }
+        .ops-task-card { display: block; width: 100%; text-align: left; padding: .8rem; border-radius: 8px; background: var(--ui-bg);
+                         border: 1px solid var(--ui-border); cursor: pointer; transition: border-color .15s; }
+        .ops-task-card:hover { border-color: var(--ui-border-strong); }
+        .ops-task-title { font-size: .82rem; color: var(--ui-text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+                          overflow: hidden; overflow-wrap: anywhere; margin: .45rem 0; }
+        .ops-col-empty { padding: 1rem; text-align: center; font-size: .75rem; color: var(--ui-text-faint); border: 1px dashed var(--ui-border); border-radius: 8px; }
+        .ops-flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; counter-reset: ops-step; }
+        @media (min-width: 640px) { .ops-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (min-width: 1024px) { .ops-flow { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+        .ops-flow li { position: relative; }
+        .ops-step-num { width: 1.75rem; height: 1.75rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+                        font-size: .75rem; font-weight: 700; background: var(--ui-surface-3); color: #fff; border: 1px solid var(--ui-border-strong); flex: none; }
+        .ops-events-wrap { max-height: 560px; overflow: auto; }
+        .ops-events-wrap .ui-table td { vertical-align: middle; }
+        .ops-evt-details summary { cursor: pointer; color: var(--ui-text-muted); list-style: none; overflow-wrap: anywhere; }
+        .ops-evt-details summary::-webkit-details-marker { display: none; }
+        .ops-evt-details[open] summary { color: var(--ui-text); }
+        .ops-evt-details pre { margin-top: .4rem; padding: .6rem; border-radius: 6px; background: var(--ui-bg); border: 1px solid var(--ui-border);
+                               font-size: .72rem; max-height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .ops-md { font-size: .85rem; color: var(--ui-text); line-height: 1.6; overflow-wrap: anywhere; }
+        .ops-md h1, .ops-md h2, .ops-md h3 { font-weight: 700; color: #fff; margin: .9rem 0 .4rem; }
+        .ops-md h1 { font-size: 1.1rem; } .ops-md h2 { font-size: 1rem; } .ops-md h3 { font-size: .9rem; }
+        .ops-md p, .ops-md ul, .ops-md ol, .ops-md pre, .ops-md blockquote { margin: .45rem 0; }
+        .ops-md ul { list-style: disc; padding-left: 1.25rem; } .ops-md ol { list-style: decimal; padding-left: 1.25rem; }
+        .ops-md code { font-family: "JetBrains Mono", monospace; font-size: .78rem; background: var(--ui-surface-2); padding: .05rem .3rem; border-radius: 4px; }
+        .ops-md pre { background: var(--ui-bg); border: 1px solid var(--ui-border); border-radius: 8px; padding: .75rem; overflow-x: auto; }
+        .ops-md pre code { background: none; padding: 0; }
+        .ops-md a { color: #A5B4FC; text-decoration: underline; }
+        .ops-md blockquote { border-left: 3px solid var(--ui-border-strong); padding-left: .75rem; color: var(--ui-text-muted); }
+        .ops-md table { border-collapse: collapse; display: block; overflow-x: auto; } .ops-md td, .ops-md th { border: 1px solid var(--ui-border); padding: .3rem .5rem; }
+        .ops-details > summary { cursor: pointer; font-size: .8rem; font-weight: 600; color: var(--ui-text-muted); padding: .25rem 0; }
+        .ops-details > summary:hover { color: var(--ui-text); }
+        .ops-feed-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .25rem .75rem; padding: .5rem .65rem;
+                         border-radius: 8px; background: var(--ui-bg); border: 1px solid var(--ui-border); font-size: .75rem; }
+        .ops-check { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--ui-text-muted); cursor: pointer; user-select: none; }
+        .ops-check input { accent-color: #FAFAFA; }
+        .ops-pill { display: inline-flex; align-items: center; gap: .45rem; padding: .35rem .7rem; border-radius: 999px; font-size: .72rem; font-weight: 600; border: 1px solid; }
+        .ops-pill .ui-dot { width: .5rem; height: .5rem; }
+        .ops-pill-live { color: var(--ui-ok); background: rgba(34,197,94,.08); }
+        .ops-pill-live .ui-dot { animation: ui-pulse 1.4s ease-in-out infinite; }
+        .ops-pill-warn { color: var(--ui-warn); background: rgba(245,158,11,.08); }
+        .ops-pill-idle { color: var(--ui-idle); background: rgba(113,113,122,.08); }
+        .ops-select-auto { width: auto; min-width: 9rem; }
+        @media (max-width: 639px) {
+          .ops-select-auto { width: 100%; }
+          .ops-toolbar > .ui-btn { flex: 1 1 auto; }
+          #tab-dashboard .ui-page-header > .ops-toolbar, #tab-tasks .ui-page-header > .ops-toolbar { width: 100%; }
+        }
+      </style>
+
       <!-- 1. DASHBOARD / MISSION OVERVIEW TAB -->
-      <section id="tab-dashboard" data-tab="dashboard" class="tab-pane block space-y-8"><div id="dashboard"></div>
-        <div class="flex items-center justify-between border-b border-[#262626] pb-5">
+      <section id="tab-dashboard" data-tab="dashboard" class="tab-pane block space-y-6"><div id="dashboard"></div>
+        <header class="ui-page-header">
           <div>
-            <h2 class="text-xl font-bold text-white tracking-tight flex items-center gap-3">
-              <span>Mission Overview</span>
-              <span class="text-xs px-2.5 py-0.5 rounded-full bg-[#181818] text-[#D4D4D8] border border-[#2E2E2E] font-mono font-normal">OPERATOR HUD</span>
-            </h2>
-            <p class="text-sm text-[#A1A1AA] mt-1">Status of autonomous execution pipeline, worker fleet, and intelligent routing.</p>
+            <h2 class="ui-page-title">Mission overview</h2>
+            <p class="ui-page-desc">What your agents are doing right now and what should happen next. Updates live every few seconds.</p>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-xs font-mono text-[#A1A1AA] bg-[#141414] border border-[#262626] px-3.5 py-2 rounded-lg">
-              Deterministic Loop: <span class="text-emerald-400 font-bold">ACTIVE</span>
-            </span>
+          <div class="ops-toolbar">
+            <button type="button" id="dash-refresh-btn" class="ui-btn ui-btn-secondary" onclick="opsRefreshDashboard(this)">
+              <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh
+            </button>
+            <button type="button" class="ui-btn ui-btn-primary" onclick="opsFocusDispatch()">
+              <i class="fa-solid fa-plus" aria-hidden="true"></i> New task
+            </button>
           </div>
+        </header>
+
+        <!-- Current handoff: the baton between agents, with the next step up front -->
+        <div id="dash-handoff" class="ui-card ops-hero" aria-live="polite">
+          <div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading the current handoff…</span></div>
         </div>
 
-        <!-- 4 HERO METRICS CARDS WITH MODERN BORDERS & SHADOWS -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div class="modern-card p-5 relative overflow-hidden">
-            <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-400"></div>
-            <div class="text-xs text-[#A1A1AA] font-medium uppercase tracking-wider">Registered Accounts</div>
-            <div id="stat-accounts" class="text-2xl font-bold text-emerald-400 font-mono mt-2">-- / -- Online</div>
-            <div id="stat-accounts-sub" class="text-xs text-[#71717A] mt-2 font-mono">Isolated profile pools active</div>
+        <!-- At-a-glance stat tiles (each opens the tab with the detail) -->
+        <div class="ops-stats">
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('agents')" title="Open Agents">
+            <div class="ui-stat-label">Agents online</div>
+            <div id="stat-accounts" class="ui-stat-value">—</div>
+            <div id="stat-accounts-sub" class="ui-stat-hint">Checking accounts…</div>
+          </button>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tasks')" title="Open Tasks">
+            <div class="ui-stat-label">Tasks running</div>
+            <div id="stat-tasks" class="ui-stat-value">—</div>
+            <div id="stat-tasks-sub" class="ui-stat-hint">Loading tasks…</div>
+          </button>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tasks')" title="Open Tasks">
+            <div class="ui-stat-label">Tasks failed</div>
+            <div id="stat-failed" class="ui-stat-value">—</div>
+            <div id="stat-failed-sub" class="ui-stat-hint">Failed, cancelled or out of budget</div>
+          </button>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('memory')" title="Open Shared memory">
+            <div class="ui-stat-label">Memory entries</div>
+            <div id="stat-memory" class="ui-stat-value">—</div>
+            <div id="stat-memory-sub" class="ui-stat-hint">Facts every agent can recall</div>
+          </button>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('agents')" title="Open Agents">
+            <div class="ui-stat-label">Worker adapters</div>
+            <div id="stat-workers" class="ui-stat-value">—</div>
+            <div id="stat-workers-sub" class="ui-stat-hint">Loaded and ready to run</div>
+          </button>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tokens')" title="Open Tokens">
+            <div class="ui-stat-label">Tokens today</div>
+            <div id="stat-tokens" class="ui-stat-value">—</div>
+            <div id="stat-tokens-sub" class="ui-stat-hint">Estimated cost</div>
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+          <!-- LIVE TASK EXECUTION STAGE TRACKER -->
+          <div id="live-execution-widget" class="ui-card space-y-3">
+            <div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading pipeline status…</span></div>
           </div>
-          <div class="modern-card p-5 relative overflow-hidden">
-            <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-sky-400"></div>
-            <div class="text-xs text-[#A1A1AA] font-medium uppercase tracking-wider">Execution Workers</div>
-            <div id="stat-workers" class="text-2xl font-bold text-cyan-400 font-mono mt-2">-- Active</div>
-            <div id="stat-workers-sub" class="text-xs text-[#71717A] mt-2 font-mono">Swarm Adapter Pool</div>
-          </div>
-          <div class="modern-card p-5 relative overflow-hidden">
-            <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 to-violet-400"></div>
-            <div class="text-xs text-[#A1A1AA] font-medium uppercase tracking-wider">Task Pipeline</div>
-            <div id="stat-tasks" class="text-2xl font-bold text-indigo-400 font-mono mt-2">-- Running</div>
-            <div id="stat-tasks-sub" class="text-xs text-[#71717A] mt-2 font-mono">0 queued · 0 running · 0 done</div>
-          </div>
-          <div class="modern-card p-5 relative overflow-hidden">
-            <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 to-orange-400"></div>
-            <div class="text-xs text-[#A1A1AA] font-medium uppercase tracking-wider">Tracked Usage</div>
-            <div id="stat-tokens" class="text-2xl font-bold text-amber-400 font-mono mt-2">0</div>
-            <div id="stat-tokens-sub" class="text-xs text-[#71717A] mt-2 font-mono">0 verified | $0.00 cost</div>
+
+          <!-- QUICK DISPATCH BOX -->
+          <div class="ui-card" id="quick-dispatch-card">
+            <div class="ui-card-header">
+              <div>
+                <h3 class="ui-card-title">Give the agents a task</h3>
+                <p class="ui-card-subtitle">Describe what you want done in plain language. The smart router picks the best agent unless you choose one.</p>
+              </div>
+            </div>
+            <form id="quick-dispatch-form" class="space-y-3" novalidate onsubmit="event.preventDefault(); dispatchTask(true);">
+              <div>
+                <label class="ui-label" for="quick-instruction">What should be done?</label>
+                <textarea id="quick-instruction" rows="3" maxlength="4000" class="ui-textarea" aria-describedby="quick-instruction-help quick-instruction-error"
+                  placeholder="e.g. Audit the authentication middleware and add the missing tests"
+                  oninput="opsClearFieldError('quick-instruction')"
+                  onkeydown="if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); dispatchTask(true); }"></textarea>
+                <div id="quick-instruction-error" class="ops-field-error hidden" role="alert"></div>
+                <div id="quick-instruction-help" class="ui-help">Ctrl+Enter dispatches and runs. Press <kbd>/</kbd> anywhere to jump here.</div>
+              </div>
+              <div class="flex flex-wrap items-end gap-3">
+                <div class="ops-grow">
+                  <label class="ui-label" for="quick-agent">Send to</label>
+                  <select id="quick-agent" class="ui-select">
+                    <option value="">Smart router (recommended)</option>
+                    <option value="antigravity-account-1">Antigravity account 1 (CLI)</option>
+                    <option value="antigravity-account-2">Antigravity account 2 (headless)</option>
+                    <option value="kiro-cli">Kiro CLI</option>
+                    <option value="cline">Cline CLI</option>
+                  </select>
+                </div>
+                <div class="ops-toolbar ml-auto">
+                  <button type="button" id="quick-dispatch-queue" class="ui-btn ui-btn-secondary" onclick="dispatchTask(false)" title="Add the task to the queue without starting it">
+                    Queue only
+                  </button>
+                  <button type="button" id="quick-dispatch-run" class="ui-btn ui-btn-primary" onclick="dispatchTask(true)" title="Create the task and start it now">
+                    <i class="fa-solid fa-play" aria-hidden="true"></i> Dispatch &amp; run
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>
 
         <!-- CONTROL PLANE OVERVIEW MATRIX -->
-        <div class="modern-card p-6 space-y-4">
-          <div class="flex items-center justify-between border-b border-[#262626] pb-4">
-            <div class="flex items-center gap-2.5">
-              <div class="w-7 h-7 rounded-md bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
-                <i class="fa-solid fa-satellite-dish text-xs"></i>
-              </div>
-              <span class="text-xs font-bold text-white uppercase tracking-wider font-mono">Mission Control Federation Telemetry</span>
-            </div>
-            <span class="text-xs font-mono text-cyan-400 bg-cyan-950/40 px-3 py-1 rounded-full border border-cyan-800/40">LIVE OBSERVABILITY</span>
-          </div>
-          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-center font-mono">
-            <div class="bg-[#0E0E0E] p-4 rounded-lg border border-[#262626]">
-              <div class="text-xs text-[#A1A1AA] uppercase tracking-wider">Providers</div>
-              <div id="mc-stat-providers" class="text-lg font-bold text-sky-400 mt-2">-- / --</div>
-            </div>
-            <div class="bg-[#0E0E0E] p-4 rounded-lg border border-[#262626]">
-              <div class="text-xs text-[#A1A1AA] uppercase tracking-wider">Accounts</div>
-              <div id="mc-stat-accounts" class="text-lg font-bold text-teal-400 mt-2">-- / --</div>
-            </div>
-            <div class="bg-[#0E0E0E] p-4 rounded-lg border border-[#262626]">
-              <div class="text-xs text-[#A1A1AA] uppercase tracking-wider">Models</div>
-              <div id="mc-stat-models" class="text-lg font-bold text-violet-400 mt-2">--</div>
-            </div>
-            <div class="bg-[#0E0E0E] p-4 rounded-lg border border-[#262626]">
-              <div class="text-xs text-[#A1A1AA] uppercase tracking-wider">Active Jobs</div>
-              <div id="mc-stat-active-jobs" class="text-lg font-bold text-amber-400 mt-2">0</div>
-            </div>
-            <div class="bg-[#0E0E0E] p-4 rounded-lg border border-[#262626]">
-              <div class="text-xs text-[#A1A1AA] uppercase tracking-wider">Today Tokens</div>
-              <div id="mc-stat-today-tokens" class="text-lg font-bold text-emerald-400 mt-2">0</div>
-            </div>
-            <div class="bg-[#0E0E0E] p-4 rounded-lg border border-[#262626]">
-              <div class="text-xs text-[#A1A1AA] uppercase tracking-wider">Est. Cost</div>
-              <div id="mc-stat-today-cost" class="text-lg font-bold text-rose-400 mt-2">$0.00</div>
+        <div class="ui-card">
+          <div class="ui-card-header">
+            <div>
+              <h3 class="ui-card-title">System details</h3>
+              <p class="ui-card-subtitle">Providers, accounts and models Mission Control knows about, plus today's usage.</p>
             </div>
           </div>
-        </div>
-
-        <!-- LIVE TASK EXECUTION STAGE TRACKER -->
-        <div id="live-execution-widget" class="modern-card p-6 space-y-4">
-          <!-- Populated dynamically -->
-        </div>
-
-        <!-- QUICK DISPATCH BOX -->
-        <div class="modern-card p-6 space-y-4">
-          <div class="flex items-center justify-between">
-            <h3 class="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-2.5 font-mono">
-              <i class="fa-solid fa-paper-plane text-emerald-400 text-xs"></i> Dispatch Instruction to Swarm
-            </h3>
-            <span class="text-xs text-[#A1A1AA] font-mono">Auto Multi-Factor Optimization</span>
-          </div>
-          <div class="flex flex-col md:flex-row gap-3">
-            <input id="quick-instruction" type="text" placeholder="Enter task instruction (e.g. Audit authentication middleware and verify tests)..." class="flex-1 bg-[#0E0E0E] border border-[#333333] rounded-lg px-4 py-2.5 text-xs text-white placeholder-[#71717A] focus:outline-none focus:border-indigo-500 font-sans shadow-inner" onkeydown="if(event.key==='Enter') dispatchTask(true)">
-            <select id="quick-agent" class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-4 py-2.5 text-xs text-[#D4D4D8] focus:outline-none font-mono">
-              <option value="">Smart Router (Auto)</option>
-              <option value="antigravity-account-1">Antigravity Account 1 (CLI)</option>
-              <option value="antigravity-account-2">Antigravity Account 2 (Headless)</option>
-              <option value="kiro-cli">Kiro CLI</option>
-              <option value="cline">Cline CLI</option>
-            </select>
-            <button onclick="dispatchTask(true)" class="px-5 py-2.5 bg-white hover:bg-[#E4E4E7] text-black font-semibold rounded-lg text-xs font-semibold shadow-sm transition flex items-center justify-center gap-2 shrink-0">
-              <i class="fa-solid fa-play text-xs"></i> Dispatch &amp; Run
-            </button>
-            <button onclick="dispatchTask(false)" class="px-4 py-2.5 bg-[#181818] hover:bg-[#222222] text-[#D4D4D8] border border-[#2E2E2E] rounded-lg text-xs font-medium transition shrink-0" title="Queue task without immediate execution">
-              Queue Only
-            </button>
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div class="ui-stat"><div class="ui-stat-label">Providers up</div><div id="mc-stat-providers" class="ui-stat-value text-lg">—</div></div>
+            <div class="ui-stat"><div class="ui-stat-label">Healthy accounts</div><div id="mc-stat-accounts" class="ui-stat-value text-lg">—</div></div>
+            <div class="ui-stat"><div class="ui-stat-label">Models</div><div id="mc-stat-models" class="ui-stat-value text-lg">—</div></div>
+            <div class="ui-stat"><div class="ui-stat-label">Active jobs</div><div id="mc-stat-active-jobs" class="ui-stat-value text-lg">—</div></div>
+            <div class="ui-stat"><div class="ui-stat-label">Tokens today</div><div id="mc-stat-today-tokens" class="ui-stat-value text-lg">—</div></div>
+            <div class="ui-stat"><div class="ui-stat-label">Est. cost</div><div id="mc-stat-today-cost" class="ui-stat-value text-lg">—</div></div>
           </div>
         </div>
       </section>
 
       <!-- 2. AGENTS & ACCOUNT REGISTRY TAB -->
-      <section id="tab-agents" data-tab="agents" class="tab-pane hidden space-y-8"><div id="agents"></div>
-        <div class="flex items-center justify-between border-b border-[#262626] pb-5">
+      <section id="tab-agents" data-tab="agents" class="tab-pane hidden space-y-6"><div id="agents"></div>
+        <header class="ui-page-header">
           <div>
-            <h2 class="text-xl font-bold text-white tracking-tight">Agent &amp; Account Registry</h2>
-            <p class="text-sm text-[#A1A1AA] mt-1">Isolated runtime worker adapters with per-account profile sandboxing and zero secret leakage.</p>
+            <h2 class="ui-page-title">Agents</h2>
+            <p class="ui-page-desc">The AI worker accounts connected to Mission Control and whether each one can take work right now.</p>
           </div>
-          <button onclick="refreshData()" class="px-4 py-2 bg-[#141414] hover:bg-[#202020] text-[#D4D4D8] border border-[#262626] rounded-lg text-xs transition flex items-center gap-2">
-            <i class="fa-solid fa-arrows-rotate text-xs"></i> Refresh
-          </button>
-        </div>
-        <div id="agents-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <!-- Dynamically populated -->
+          <div class="ops-toolbar">
+            <input id="agents-filter" type="search" class="ui-input ops-select-auto" placeholder="Filter by name, provider or status" aria-label="Filter agents" oninput="opsFilterAgents()">
+            <button type="button" id="agents-refresh-btn" class="ui-btn ui-btn-secondary" onclick="opsRefreshAgents(this)">
+              <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh
+            </button>
+          </div>
+        </header>
+        <div id="agents-summary" class="ops-meta" aria-live="polite"></div>
+        <div id="agents-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div class="ui-state col-span-full" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading agents…</span></div>
         </div>
       </section>
 
       <!-- 3. EXECUTION FLOW TAB -->
-      <section id="tab-flow" data-tab="flow" class="tab-pane hidden space-y-8"><div id="flow"></div>
-        <div class="flex items-center justify-between border-b border-[#262626] pb-5">
+      <section id="tab-flow" data-tab="flow" class="tab-pane hidden space-y-6"><div id="flow"></div>
+        <header class="ui-page-header">
           <div>
-            <h2 class="text-xl font-bold text-white tracking-tight">Autonomous Swarm Execution Flow</h2>
-            <p class="text-sm text-[#A1A1AA] mt-1">Deterministic 8-stage execution topology and live agent collaboration graph.</p>
+            <h2 class="ui-page-title">How a task flows</h2>
+            <p class="ui-page-desc">Every task passes through these eight stages, from your request to a reviewed, merged change.</p>
+          </div>
+          <div class="ops-toolbar">
+            <button type="button" class="ui-btn ui-btn-primary" onclick="opsFocusDispatch()">
+              <i class="fa-solid fa-plus" aria-hidden="true"></i> New task
+            </button>
+          </div>
+        </header>
+
+        <div class="ops-stats-4" aria-label="Tasks by stage right now">
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tasks')"><div class="ui-stat-label">Waiting</div><div id="flow-count-ready" class="ui-stat-value">—</div><div class="ui-stat-hint">Queued, not started</div></button>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tasks')"><div class="ui-stat-label">Running</div><div id="flow-count-running" class="ui-stat-value">—</div><div class="ui-stat-hint">An agent is on it</div></button>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tasks')"><div class="ui-stat-label">Done</div><div id="flow-count-completed" class="ui-stat-value">—</div><div class="ui-stat-hint">Finished and verified</div></button>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tasks')"><div class="ui-stat-label">Failed / stopped</div><div id="flow-count-failed" class="ui-stat-value">—</div><div class="ui-stat-hint">Needs a look</div></button>
+        </div>
+
+        <ol class="ops-flow">
+          <li class="ui-card space-y-2"><div class="flex items-center gap-2.5"><span class="ops-step-num">1</span><span class="ui-card-title">You ask</span></div>
+            <p class="ui-card-subtitle">You dispatch a task, or an agent picks up from the last handoff.</p></li>
+          <li class="ui-card space-y-2"><div class="flex items-center gap-2.5"><span class="ops-step-num">2</span><span class="ui-card-title">Shared brain</span></div>
+            <p class="ui-card-subtitle">Recalls the session, the previous handoff and relevant memories.</p>
+            <button type="button" class="ui-btn ui-btn-ghost" onclick="showTab('memory')">Open memory <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></li>
+          <li class="ui-card space-y-2"><div class="flex items-center gap-2.5"><span class="ops-step-num">3</span><span class="ui-card-title">Smart router</span></div>
+            <p class="ui-card-subtitle">Scores every available agent on eight factors and picks the best one, with a failover order.</p>
+            <button type="button" class="ui-btn ui-btn-ghost" onclick="showTab('routing')">See routing <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></li>
+          <li class="ui-card space-y-2"><div class="flex items-center gap-2.5"><span class="ops-step-num">4</span><span class="ui-card-title">Context optimizer</span></div>
+            <p class="ui-card-subtitle">Trims and de-duplicates context so it fits the model's token budget.</p></li>
+          <li class="ui-card space-y-2"><div class="flex items-center gap-2.5"><span class="ops-step-num">5</span><span class="ui-card-title">Agent does the work</span></div>
+            <p class="ui-card-subtitle">Antigravity, Kiro or Cline runs the task in an isolated sandbox.</p>
+            <button type="button" class="ui-btn ui-btn-ghost" onclick="showTab('agents')">See agents <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></li>
+          <li class="ui-card space-y-2"><div class="flex items-center gap-2.5"><span class="ops-step-num">6</span><span class="ui-card-title">Failover guard</span></div>
+            <p class="ui-card-subtitle">On a rate limit or quota error the task moves to the next agent automatically.</p></li>
+          <li class="ui-card space-y-2"><div class="flex items-center gap-2.5"><span class="ops-step-num">7</span><span class="ui-card-title">Verification</span></div>
+            <p class="ui-card-subtitle">One bounded, non-recursive check confirms the result.</p></li>
+          <li class="ui-card space-y-2"><div class="flex items-center gap-2.5"><span class="ops-step-num">8</span><span class="ui-card-title">Review &amp; merge</span></div>
+            <p class="ui-card-subtitle">You approve the change in Worktrees, or it merges automatically once verified.</p>
+            <button type="button" class="ui-btn ui-btn-ghost" onclick="showTab('worktrees')">Open worktrees <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></li>
+        </ol>
+      </section>
+
+      <!-- 4. TASKS TAB (board + list) -->
+      <section id="tab-tasks" data-tab="tasks" class="tab-pane hidden space-y-6"><div id="tasks"></div>
+        <header class="ui-page-header">
+          <div>
+            <h2 class="ui-page-title">Tasks</h2>
+            <p class="ui-page-desc">Everything the agents have been asked to do, grouped by where it is now. Click a task to see its output.</p>
+          </div>
+          <div class="ops-toolbar">
+            <div class="ops-seg" role="group" aria-label="Task view">
+              <button type="button" id="tasks-view-board" aria-pressed="true" onclick="opsSetTasksView('board')"><i class="fa-solid fa-table-columns" aria-hidden="true"></i> Board</button>
+              <button type="button" id="tasks-view-list" aria-pressed="false" onclick="opsSetTasksView('list')"><i class="fa-solid fa-list" aria-hidden="true"></i> List</button>
+            </div>
+            <button type="button" id="tasks-refresh-btn" class="ui-btn ui-btn-secondary" onclick="opsRefreshTasks(this)">
+              <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh
+            </button>
+            <button type="button" class="ui-btn ui-btn-primary" onclick="opsFocusDispatch()">
+              <i class="fa-solid fa-plus" aria-hidden="true"></i> New task
+            </button>
+          </div>
+        </header>
+
+        <div class="ops-toolbar">
+          <input id="tasks-filter" type="search" class="ui-input ops-grow" placeholder="Search tasks by text, ID or agent" aria-label="Search tasks" oninput="opsFilterTasks()">
+          <span id="tasks-count" class="ui-muted text-xs" aria-live="polite"></span>
+        </div>
+
+        <div id="tasks-board" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div class="ui-card">
+            <div class="ops-col-head"><div><div class="ui-card-title">Waiting</div><div class="ui-card-subtitle">Queued, not started yet</div></div><span id="badge-ready" class="ops-col-count">0</span></div>
+            <div id="tasks-ready" class="space-y-2.5 min-h-[120px]"><div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span></div></div>
+          </div>
+          <div class="ui-card">
+            <div class="ops-col-head"><div><div class="ui-card-title">Running</div><div class="ui-card-subtitle">An agent is working on it</div></div><span id="badge-running" class="ops-col-count">0</span></div>
+            <div id="tasks-running" class="space-y-2.5 min-h-[120px]"><div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span></div></div>
+          </div>
+          <div class="ui-card">
+            <div class="ops-col-head"><div><div class="ui-card-title">Done</div><div class="ui-card-subtitle">Finished successfully</div></div><span id="badge-completed" class="ops-col-count">0</span></div>
+            <div id="tasks-completed" class="space-y-2.5 min-h-[120px]"><div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span></div></div>
+          </div>
+          <div class="ui-card">
+            <div class="ops-col-head"><div><div class="ui-card-title">Failed / stopped</div><div class="ui-card-subtitle">Failed, cancelled or blocked</div></div><span id="badge-failed" class="ops-col-count">0</span></div>
+            <div id="tasks-failed" class="space-y-2.5 min-h-[120px]"><div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span></div></div>
           </div>
         </div>
-        <div class="modern-card p-6 font-mono text-xs text-[#D4D4D8] space-y-6">
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 text-center">
-            <div class="p-4 bg-[#0E0E0E] border border-[#262626] rounded-lg">
-              <div class="text-xs font-bold text-indigo-400 mb-1.5 font-mono">1. USER / PROMPT</div>
-              <div class="text-xs text-[#A1A1AA] font-sans">Task dispatch or Universal Continue</div>
-            </div>
-            <div class="p-4 bg-[#0E0E0E] border border-[#262626] rounded-lg">
-              <div class="text-xs font-bold text-emerald-400 mb-1.5 font-mono">2. SHARED BRAIN</div>
-              <div class="text-xs text-[#A1A1AA] font-sans">Session, continuator &amp; scope retrieval</div>
-            </div>
-            <div class="p-4 bg-[#0E0E0E] border border-[#262626] rounded-lg">
-              <div class="text-xs font-bold text-cyan-400 mb-1.5 font-mono">3. SMART ROUTER</div>
-              <div class="text-xs text-[#A1A1AA] font-sans">8-factor scoring, failover order</div>
-            </div>
-            <div class="p-4 bg-[#0E0E0E] border border-[#262626] rounded-lg">
-              <div class="text-xs font-bold text-amber-400 mb-1.5 font-mono">4. CONTEXT OPTIMIZER</div>
-              <div class="text-xs text-[#A1A1AA] font-sans">Scoping, dedup &amp; token budgeting</div>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 text-center">
-            <div class="p-4 bg-[#0E0E0E] border border-[#262626] rounded-lg">
-              <div class="text-xs font-bold text-blue-400 mb-1.5 font-mono">5. AGENT ADAPTER</div>
-              <div class="text-xs text-[#A1A1AA] font-sans">AG-1, Headless AG-2, Kiro, Cline</div>
-            </div>
-            <div class="p-4 bg-[#0E0E0E] border border-[#262626] rounded-lg">
-              <div class="text-xs font-bold text-yellow-400 mb-1.5 font-mono">6. FAILOVER GUARD</div>
-              <div class="text-xs text-[#A1A1AA] font-sans">Deterministic failover on rate limits</div>
-            </div>
-            <div class="p-4 bg-[#0E0E0E] border border-[#262626] rounded-lg">
-              <div class="text-xs font-bold text-purple-400 mb-1.5 font-mono">7. VERIFICATION</div>
-              <div class="text-xs text-[#A1A1AA] font-sans">Bounded depth &le; 1, non-recursive</div>
-            </div>
-            <div class="p-4 bg-[#0E0E0E] border border-[#262626] rounded-lg">
-              <div class="text-xs font-bold text-emerald-400 mb-1.5 font-mono">8. WORKTREE MERGE</div>
-              <div class="text-xs text-[#A1A1AA] font-sans">Human gate or auto-merge on verify</div>
-            </div>
+
+        <div id="tasks-list" class="hidden">
+          <div class="ui-table-wrap">
+            <table class="ui-table">
+              <thead><tr><th>Task</th><th>Status</th><th>Agent</th><th>Created</th><th>ID</th><th><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody id="tasks-tbody"><tr><td colspan="6"><div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading tasks…</span></div></td></tr></tbody>
+            </table>
           </div>
         </div>
       </section>
 
-      <!-- 4. TASKS KANBAN TAB -->
-      <section id="tab-tasks" data-tab="tasks" class="tab-pane hidden space-y-8"><div id="tasks"></div>
-        <div class="flex items-center justify-between border-b border-[#262626] pb-5">
-          <div>
-            <h2 class="text-xl font-bold text-white tracking-tight">Task Lifecycle (Kanban)</h2>
-            <p class="text-sm text-[#A1A1AA] mt-1">Real-time state tracking from intake to verification and terminal outcome.</p>
-          </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div class="modern-card p-4 space-y-3">
-            <div class="flex items-center justify-between border-b border-[#262626] pb-2 text-xs font-semibold uppercase text-[#A1A1AA] font-mono">
-              <span>Ready Queue</span>
-              <span id="badge-ready" class="px-2 py-0.5 rounded-full bg-[#181818] text-[#D4D4D8] text-xs font-semibold">0</span>
-            </div>
-            <div id="tasks-ready" class="space-y-3 min-h-[140px]"></div>
-          </div>
-          <div class="modern-card p-4 space-y-3">
-            <div class="flex items-center justify-between border-b border-[#262626] pb-2 text-xs font-semibold uppercase text-cyan-400 font-mono">
-              <span>Running / Active</span>
-              <span id="badge-running" class="px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 text-xs font-semibold">0</span>
-            </div>
-            <div id="tasks-running" class="space-y-3 min-h-[140px]"></div>
-          </div>
-          <div class="modern-card p-4 space-y-3">
-            <div class="flex items-center justify-between border-b border-[#262626] pb-2 text-xs font-semibold uppercase text-emerald-400 font-mono">
-              <span>Completed</span>
-              <span id="badge-completed" class="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 text-xs font-semibold">0</span>
-            </div>
-            <div id="tasks-completed" class="space-y-3 min-h-[140px]"></div>
-          </div>
-          <div class="modern-card p-4 space-y-3">
-            <div class="flex items-center justify-between border-b border-[#262626] pb-2 text-xs font-semibold uppercase text-rose-400 font-mono">
-              <span>Terminal / Failed</span>
-              <span id="badge-failed" class="px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 text-xs font-semibold">0</span>
-            </div>
-            <div id="tasks-failed" class="space-y-3 min-h-[140px]"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 5. EVENTS LEDGER TAB -->
+      <!-- 5. EVENTS / ACTIVITY FEED TAB -->
       <section id="tab-events" data-tab="events" class="tab-pane hidden space-y-6"><div id="events"></div>
-        <!-- Live Account & Authentication Lifecycle Feed -->
-        <div class="modern-card p-5 space-y-3 border-indigo-900/50">
-          <div class="flex items-center justify-between">
-            <div>
-              <h2 class="text-xs font-bold text-white flex items-center gap-2 uppercase tracking-wider font-mono">
-                <i class="fa-solid fa-satellite-dish text-indigo-400"></i> Live Account &amp; Auth Lifecycle Feed
-              </h2>
-              <p class="text-xs text-[#A1A1AA] mt-0.5">Real-time onboarding events grouped by correlation ID. Secret-redacted.</p>
-            </div>
-            <span class="px-2.5 py-1 rounded-full text-xs font-mono bg-indigo-950 text-indigo-300 border border-indigo-800">ZERO CREDENTIAL LEAKAGE</span>
-          </div>
-          <div id="lifecycle-feed" class="max-h-48 overflow-y-auto space-y-1.5 font-mono text-xs">
-            <div data-lifecycle-placeholder class="text-[#71717A] text-center py-3 font-sans text-xs">Waiting for account lifecycle events… trigger the Add Account wizard to monitor flow.</div>
-          </div>
-        </div>
-
-        <div class="flex items-center justify-between border-b border-[#262626] pb-5">
+        <header class="ui-page-header">
           <div>
-            <h2 class="text-xl font-bold text-white tracking-tight">Append-Only Event Ledger</h2>
-            <p class="text-sm text-[#A1A1AA] mt-1">Real-time structured telemetry stream across all providers and transitions.</p>
+            <h2 class="ui-page-title">Activity feed</h2>
+            <p class="ui-page-desc">A live log of everything that happens: tasks, routing decisions, sign-ins and errors. Newest first; click a row's details to expand them.</p>
           </div>
-          <div class="flex items-center gap-2.5">
-            <span id="stream-status-pill" class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2 bg-emerald-950 text-emerald-400 border border-emerald-800">
-              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> LIVE STREAMING
-            </span>
-            <button id="btn-toggle-stream" onclick="toggleEventStream()" class="px-3 py-1.5 bg-[#141414] hover:bg-[#202020] text-[#FAFAFA] border border-[#262626] rounded-lg text-xs transition">
-              Pause
+          <div class="ops-toolbar">
+            <span id="stream-status-pill" class="ops-pill ops-pill-live" role="status"><span class="ui-dot" aria-hidden="true"></span> Live</span>
+            <button type="button" id="btn-toggle-stream" class="ui-btn ui-btn-secondary" onclick="toggleEventStream()" title="Freeze the feed so it stops moving while you read">
+              <i class="fa-solid fa-pause" aria-hidden="true"></i> Pause
             </button>
-            <button onclick="clearEventsTable()" class="px-3 py-1.5 bg-[#141414] hover:bg-[#202020] text-[#A1A1AA] border border-[#262626] rounded-lg text-xs transition">
-              Clear
+            <button type="button" class="ui-btn ui-btn-ghost" onclick="clearEventsTable()" title="Clear the feed on this screen (the event log itself is kept)">Clear</button>
+            <button type="button" id="events-refresh-btn" class="ui-btn ui-btn-secondary" onclick="opsRefreshEvents(this)">
+              <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh
             </button>
-            <button onclick="loadEvents()" class="px-3.5 py-1.5 bg-[#141414] hover:bg-[#202020] text-[#D4D4D8] border border-[#262626] rounded-lg text-xs transition flex items-center gap-1.5">
-              <i class="fa-solid fa-arrows-rotate text-xs"></i> Poll Now
-            </button>
+          </div>
+        </header>
+
+        <div class="ui-card flex flex-col lg:flex-row lg:items-end gap-3">
+          <div class="ops-grow">
+            <label class="ui-label" for="event-filter-type">Show</label>
+            <select id="event-filter-type" onchange="filterEventsTable()" class="ui-select">
+              <option value="">All activity</option>
+              <option value="TASK_">Tasks</option>
+              <option value="ROUTE_,MODEL_">Routing &amp; model choice</option>
+              <option value="TOOL_">Tool calls</option>
+              <option value="VERIFICATION_">Verification &amp; tests</option>
+              <option value="WORKTREE_,DIFF_,MERGE_">Worktrees &amp; merges</option>
+              <option value="AGENT_,ACCOUNT,PROVIDER_,ANTIGRAVITY_">Agents &amp; accounts</option>
+              <option value="MEMORY_,HANDOFF_,CONTINUATION_">Memory &amp; handoffs</option>
+              <option value="AUTH_,PERMISSION_">Security &amp; sign-in</option>
+              <option value="@errors">Errors &amp; failures</option>
+            </select>
+          </div>
+          <div class="ops-grow">
+            <label class="ui-label" for="event-filter-task">Task ID</label>
+            <input type="search" id="event-filter-task" oninput="filterEventsTable()" placeholder="e.g. task-1a2b" class="ui-input ui-mono">
+          </div>
+          <div class="ops-grow">
+            <label class="ui-label" for="event-filter-agent">Agent or provider</label>
+            <input type="search" id="event-filter-agent" oninput="filterEventsTable()" placeholder="e.g. kiro-cli" class="ui-input ui-mono">
+          </div>
+          <div class="flex flex-col gap-2 pb-1">
+            <label class="ops-check" title="AUTH_SUCCESS is logged for every dashboard request, so it drowns out everything else"><input type="checkbox" id="events-hide-auth" checked onchange="filterEventsTable()"> Hide routine sign-ins</label>
+            <label class="ops-check" title="Keep the newest event in view as new ones arrive"><input type="checkbox" id="events-follow" checked> Follow newest</label>
           </div>
         </div>
 
-        <!-- Filter Controls with Comfortable Gaps -->
-        <div class="flex flex-col sm:flex-row items-center gap-4 modern-card p-4">
-          <input type="text" id="event-filter-task" oninput="filterEventsTable()" placeholder="Filter by Task ID (e.g. task-001)..." class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3.5 py-2 text-xs text-[#FAFAFA] focus:outline-none focus:border-indigo-500 flex-1 font-mono w-full">
-          <select id="event-filter-type" onchange="filterEventsTable()" class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3.5 py-2 text-xs text-[#FAFAFA] focus:outline-none font-mono w-full sm:w-auto">
-            <option value="">All Event Categories</option>
-            <option value="TASK_">Task Lifecycle (CREATED, STARTED, COMPLETED, FAILED)</option>
-            <option value="ROUTE_">Routing &amp; Model Selection</option>
-            <option value="TOOL_">Tool Calls</option>
-            <option value="VERIFICATION_">Verification &amp; Tests</option>
-            <option value="WORKTREE_">Worktree &amp; Sandbox</option>
-            <option value="AUTH_">Security &amp; Auth</option>
-            <option value="ERROR">Errors &amp; Failures</option>
-          </select>
-          <input type="text" id="event-filter-agent" oninput="filterEventsTable()" placeholder="Filter Agent/Provider..." class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3.5 py-2 text-xs text-[#FAFAFA] focus:outline-none w-full sm:w-48 font-mono">
-        </div>
+        <div class="ops-meta"><span id="events-count" aria-live="polite"></span></div>
 
-        <!-- Events Table with Sticky Header -->
-        <div id="events-table-wrapper" class="modern-card overflow-hidden max-h-[550px] overflow-y-auto">
-          <table class="w-full text-left font-mono text-sm">
-            <thead class="sticky-th text-[#D4D4D8] uppercase text-xs font-bold tracking-wider">
+        <div id="events-table-wrapper" class="ui-table-wrap ops-events-wrap">
+          <table class="ui-table">
+            <thead>
               <tr>
-                <th class="py-3 px-4 w-28">Time (UTC)</th>
-                <th class="py-3 px-4 w-52">Event Type</th>
-                <th class="py-3 px-4 w-36">Task ID</th>
-                <th class="py-3 px-4 w-44">Agent / Provider</th>
-                <th class="py-3 px-4">Details</th>
+                <th style="width:7rem">When</th>
+                <th style="width:13rem">Event</th>
+                <th style="width:8rem">Task</th>
+                <th style="width:10rem">Agent / provider</th>
+                <th>Details</th>
               </tr>
             </thead>
-            <tbody id="events-tbody" class="divide-y divide-[#262626] text-[#D4D4D8]">
-              <tr><td colspan="5" class="p-6 text-center text-[#71717A] font-sans">Connecting to telemetry stream...</td></tr>
+            <tbody id="events-tbody">
+              <tr><td colspan="5"><div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Connecting to the activity stream…</span></div></td></tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- Live Account & Authentication Lifecycle Feed -->
+        <div class="ui-card space-y-3">
+          <div class="ui-card-header" style="margin-bottom:0">
+            <div>
+              <h3 class="ui-card-title">Account &amp; sign-in activity</h3>
+              <p class="ui-card-subtitle">Accounts being added, signing in or changing state, as it happens. Secrets are never shown.</p>
+            </div>
+          </div>
+          <div id="lifecycle-feed" class="max-h-56 overflow-y-auto space-y-1.5">
+            <div data-lifecycle-placeholder class="ui-state" style="padding:1.25rem">
+              <div class="ui-state-hint">Nothing yet. Add an account from the Accounts tab to watch its sign-in steps here.</div>
+            </div>
+          </div>
         </div>
       </section>
 
       <!-- 6. SHARED MEMORY TAB -->
       <section id="tab-memory" data-tab="memory" class="tab-pane hidden space-y-6"><div id="memory"></div>
-        <div class="flex items-center justify-between border-b border-[#262626] pb-5">
+        <header class="ui-page-header">
           <div>
-            <h2 class="text-xl font-bold text-white tracking-tight">Shared Memory &amp; Retrieval History</h2>
-            <p class="text-sm text-[#A1A1AA] mt-1">Scoped persistent knowledge &amp; real BM25 retrieval events.</p>
+            <h2 class="ui-page-title">Shared memory</h2>
+            <p class="ui-page-desc">Facts, decisions and rules every agent can recall. Search them, add new ones, see what agents looked up, and read the current handoff.</p>
           </div>
-          <div class="flex gap-3">
-            <button id="mem-view-records-btn" onclick="toggleMemoryView('records')" class="px-4 py-2 bg-purple-700 text-white rounded-lg text-xs font-semibold shadow-sm">Knowledge Records</button>
-            <button id="mem-view-retrievals-btn" onclick="toggleMemoryView('retrievals')" class="px-4 py-2 bg-[#141414] text-[#D4D4D8] hover:bg-[#202020] border border-[#262626] rounded-lg text-xs font-semibold">Retrieval History</button>
+          <div class="ops-seg" role="group" aria-label="Memory view">
+            <button type="button" id="mem-view-records-btn" aria-pressed="true" onclick="toggleMemoryView('records')">Memories</button>
+            <button type="button" id="mem-view-retrievals-btn" aria-pressed="false" onclick="toggleMemoryView('retrievals')">Lookups</button>
+            <button type="button" id="mem-view-handoffs-btn" aria-pressed="false" onclick="toggleMemoryView('handoffs')">Handoff</button>
           </div>
-        </div>
-
-        <!-- Filter Bar -->
-        <div class="modern-card p-4 flex flex-wrap gap-4 items-center text-xs">
-          <div class="flex-1 min-w-[200px]">
-            <input id="mem-filter-search" type="text" placeholder="Filter memory content..." oninput="loadMemories()" class="w-full bg-[#0E0E0E] border border-[#333333] rounded-lg px-3.5 py-2 text-xs text-white focus:outline-none focus:border-purple-500">
-          </div>
-          <select id="mem-filter-scope" onchange="loadMemories()" class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3 py-2 text-[#D4D4D8]">
-            <option value="">All Scopes</option>
-            <option value="PROJECT">PROJECT</option>
-            <option value="SESSION">SESSION</option>
-            <option value="GLOBAL">GLOBAL</option>
-            <option value="TASK">TASK</option>
-          </select>
-          <select id="mem-filter-imp" onchange="loadMemories()" class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3 py-2 text-[#D4D4D8]">
-            <option value="">Min Importance (All)</option>
-            <option value="5">5 - Critical</option>
-            <option value="4">4 - High</option>
-            <option value="3">3 - Medium</option>
-            <option value="2">2 - Low</option>
-            <option value="1">1 - Minimal</option>
-          </select>
-          <!-- Options are populated at runtime from /api/agents by
-               populateAgentFilter(). They used to be hardcoded here, so an account or
-               IDE added after this file was written could never appear in the list. -->
-          <select id="mem-filter-agent" onchange="loadMemories()" class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3 py-2 text-[#D4D4D8]">
-            <option value="">All Agents</option>
-          </select>
-          <button onclick="loadMemories()" class="px-4 py-2 bg-[#181818] hover:bg-[#222222] text-[#FAFAFA] border border-[#2E2E2E] rounded-lg font-medium">Filter</button>
-        </div>
-
-        <!-- Add Memory Form -->
-        <div class="modern-card p-5 space-y-3">
-          <h3 class="text-xs font-semibold uppercase text-emerald-400 flex items-center gap-2 font-mono">
-            <i class="fa-solid fa-plus text-xs"></i> Store New Memory Record
-          </h3>
-          <div class="flex gap-3">
-            <input id="mem-add-content" type="text" placeholder="Important architectural decision, rule, or constraint..." class="flex-1 bg-[#0E0E0E] border border-[#333333] rounded-lg px-4 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
-            <select id="mem-add-scope" class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3 py-2 text-xs text-[#D4D4D8]">
-              <option value="project">Project</option>
-              <option value="session">Session</option>
-              <option value="global">Global</option>
-              <option value="task">Task</option>
-            </select>
-            <select id="mem-add-imp" class="bg-[#0E0E0E] border border-[#333333] rounded-lg px-3 py-2 text-xs text-[#D4D4D8]">
-              <option value="3">Imp 3</option>
-              <option value="4">Imp 4</option>
-              <option value="5">Imp 5</option>
-              <option value="2">Imp 2</option>
-              <option value="1">Imp 1</option>
-            </select>
-            <button onclick="addMemory()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition">Add</button>
-          </div>
-        </div>
+        </header>
 
         <div id="memory-records-view" class="space-y-4">
-          <div id="memory-list" class="space-y-4"></div>
-        </div>
-        <div id="memory-retrievals-view" class="hidden space-y-4">
-          <div class="p-4 modern-card text-xs text-[#A1A1AA] font-mono">
-            Retrieval ledger tracking exact BM25 queries, matched memory IDs, and relevance scores.
+          <!-- Search & filters -->
+          <div class="ui-card">
+            <div class="flex flex-col lg:flex-row lg:items-end gap-3">
+              <div class="ops-grow ops-grow-wide">
+                <label class="ui-label" for="mem-filter-search">Search memories</label>
+                <input id="mem-filter-search" type="search" placeholder="e.g. deploy, auth, DEV cluster" oninput="opsMemorySearchChanged()" class="ui-input" autocomplete="off">
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 lg:flex lg:items-end">
+                <div>
+                  <label class="ui-label" for="mem-filter-scope">Scope</label>
+                  <select id="mem-filter-scope" onchange="loadMemories({ reset: true })" class="ui-select">
+                    <option value="">All scopes</option>
+                    <option value="PROJECT">Project</option>
+                    <option value="SESSION">Session</option>
+                    <option value="GLOBAL">Global</option>
+                    <option value="TASK">Task</option>
+                    <option value="AGENT">Agent</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="ui-label" for="mem-filter-imp">Importance</label>
+                  <select id="mem-filter-imp" onchange="loadMemories({ reset: true })" class="ui-select">
+                    <option value="">Any importance</option>
+                    <option value="5">5 · Critical only</option>
+                    <option value="4">4+ · High and up</option>
+                    <option value="3">3+ · Medium and up</option>
+                    <option value="2">2+ · Low and up</option>
+                    <option value="1">1+ · Everything</option>
+                  </select>
+                </div>
+                <!-- Options are populated at runtime from /api/agents by
+                     populateAgentFilter(). They used to be hardcoded here, so an account or
+                     IDE added after this file was written could never appear in the list. -->
+                <div>
+                  <label class="ui-label" for="mem-filter-agent">Written by</label>
+                  <select id="mem-filter-agent" onchange="loadMemories({ reset: true })" class="ui-select">
+                    <option value="">All agents</option>
+                  </select>
+                </div>
+              </div>
+              <button type="button" class="ui-btn ui-btn-ghost whitespace-nowrap" onclick="opsClearMemoryFilters()">Clear filters</button>
+            </div>
           </div>
-          <div id="memory-retrievals-list" class="space-y-4"></div>
+
+          <!-- Add Memory Form -->
+          <details id="mem-add-panel" class="ui-card ops-details">
+            <summary><i class="fa-solid fa-plus" aria-hidden="true"></i> Add a memory</summary>
+            <form id="mem-add-form" class="space-y-3 mt-3" novalidate onsubmit="event.preventDefault(); addMemory();">
+              <p class="ui-help" style="margin-top:0">Save a fact, decision or rule. Every agent will be able to recall it. Never paste secrets, tokens or passwords.</p>
+              <div>
+                <label class="ui-label" for="mem-add-content">Memory</label>
+                <textarea id="mem-add-content" rows="3" maxlength="4000" class="ui-textarea" aria-describedby="mem-add-help mem-add-content-error"
+                  placeholder="e.g. Always deploy to DEV first; PROD needs a human approval."
+                  oninput="opsClearFieldError('mem-add-content'); opsUpdateMemoryCounter()"
+                  onkeydown="if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); addMemory(); }"></textarea>
+                <div id="mem-add-content-error" class="ops-field-error hidden" role="alert"></div>
+                <div id="mem-add-help" class="ui-help">Ctrl+Enter to save · <span id="mem-add-counter">0</span> / 4000 characters</div>
+              </div>
+              <div class="flex flex-col sm:flex-row sm:items-end gap-3">
+                <div class="ops-grow">
+                  <label class="ui-label" for="mem-add-scope">Who should see it</label>
+                  <select id="mem-add-scope" class="ui-select">
+                    <option value="project">Project: agents working in this repo</option>
+                    <option value="session">Session: only this working session</option>
+                    <option value="global">Global: every agent, everywhere</option>
+                    <option value="task">Task: only the current task</option>
+                  </select>
+                </div>
+                <div class="ops-grow">
+                  <label class="ui-label" for="mem-add-imp">Importance</label>
+                  <select id="mem-add-imp" class="ui-select">
+                    <option value="3">3 · Medium (default)</option>
+                    <option value="4">4 · High</option>
+                    <option value="5">5 · Critical</option>
+                    <option value="2">2 · Low</option>
+                    <option value="1">1 · Minimal</option>
+                  </select>
+                </div>
+                <button type="button" id="mem-add-btn" onclick="addMemory()" class="ui-btn ui-btn-primary"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save memory</button>
+              </div>
+            </form>
+          </details>
+
+          <div id="memory-count" class="ops-meta" aria-live="polite"></div>
+          <div id="memory-list" class="space-y-3">
+            <div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading memories…</span></div>
+          </div>
+        </div>
+
+        <div id="memory-retrievals-view" class="hidden space-y-4">
+          <p class="ui-help">Every time an agent searched memory: what it asked, which memory matched best and how well (BM25 relevance score).</p>
+          <div id="memory-retrievals-list">
+            <div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading lookups…</span></div>
+          </div>
+        </div>
+
+        <div id="memory-handoffs-view" class="hidden space-y-4">
+          <div class="ui-card space-y-4">
+            <div class="ui-card-header" style="margin-bottom:0">
+              <div>
+                <h3 class="ui-card-title">Current handoff</h3>
+                <p class="ui-card-subtitle">The baton passed between agents: what was done and exactly what to do next.</p>
+              </div>
+              <button type="button" id="handoff-refresh-btn" class="ui-btn ui-btn-secondary" onclick="opsRefreshHandoffs(this)"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh</button>
+            </div>
+            <div id="handoff-card" class="space-y-3 text-sm">
+              <div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading handoff…</span></div>
+            </div>
+            <details class="ops-details" id="handoff-content-panel">
+              <summary>Full handoff note</summary>
+              <div id="handoff-content" class="ops-md mt-2"></div>
+            </details>
+          </div>
+          <div class="ui-card space-y-3">
+            <div>
+              <h3 class="ui-card-title">Previous handoffs</h3>
+              <p class="ui-card-subtitle">Select one to read it above.</p>
+            </div>
+            <div id="handoff-history-list" class="space-y-2"></div>
+          </div>
         </div>
       </section>
 
@@ -1993,27 +2180,22 @@
       eventSource = new EventSource(sseUrl);
 
       eventSource.onopen = () => {
-        const pill = document.getElementById('stream-status-pill');
-        if (pill) {
-          pill.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2 bg-emerald-950 text-emerald-400 border border-emerald-800';
-          pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> LIVE STREAMING';
-        }
+        OPS.streamState = 'live';
+        if (!eventStreamPaused) opsSetStreamPill('live');
         const ind = document.getElementById('stream-indicator-text');
         if (ind) ind.textContent = 'SSE CONNECTED';
       };
 
       eventSource.onerror = () => {
-        const pill = document.getElementById('stream-status-pill');
-        if (pill) {
-          pill.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2 bg-amber-950 text-amber-400 border border-amber-800';
-          pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> RECONNECTING';
-        }
+        OPS.streamState = 'reconnecting';
+        if (!eventStreamPaused) opsSetStreamPill('reconnecting');
         const ind = document.getElementById('stream-indicator-text');
         if (ind) ind.textContent = 'SSE RECONNECTING';
       };
 
+      // Always accept events: pausing only freezes the Activity table (see
+      // handleIncomingEvent), so live data refreshes keep running meanwhile.
       eventSource.onmessage = (e) => {
-        if (eventStreamPaused) return;
         try {
           const evt = JSON.parse(e.data);
           queueIncomingEvent(evt);
@@ -2025,18 +2207,12 @@
 
     function toggleEventStream() {
       eventStreamPaused = !eventStreamPaused;
-      const btn = document.getElementById('btn-toggle-stream');
-      const pill = document.getElementById('stream-status-pill');
-      if (btn) btn.textContent = eventStreamPaused ? 'Resume' : 'Pause';
-      if (pill) {
-        if (eventStreamPaused) {
-          pill.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2 bg-[#141414] text-[#A1A1AA] border border-[#262626]';
-          pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-[#71717A]"></span> PAUSED';
-        } else {
-          pill.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2 bg-emerald-950 text-emerald-400 border border-emerald-800';
-          pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> LIVE STREAMING';
-        }
+      if (!eventStreamPaused) {
+        const waiting = OPS.pausedEvents.splice(0, OPS.pausedEvents.length);
+        if (waiting.length) opsPrependEvents(waiting.reverse());
+        loadEvents();
       }
+      opsSyncStreamControls();
     }
 
     function queueIncomingEvent(evt) {
@@ -2080,7 +2256,6 @@
     function handleIncomingEvent(evt) {
       try {
         const rawType = evt.event_type || evt.type || '';
-        const eType = rawType;
         const eTypeUpper = rawType.toUpperCase();
         if (eTypeUpper.startsWith('ACCOUNT') || eTypeUpper.startsWith('AGENT') || eTypeUpper.startsWith('AUTH')) {
           // Isolated on purpose: the lifecycle feed is cosmetic, but it used to
@@ -2107,31 +2282,14 @@
           debouncedRefreshData(50);
         }
 
-        const tbody = document.getElementById('events-tbody');
-        if (tbody) {
-          const placeholder = tbody.querySelector('td[colspan]');
-          if (placeholder) placeholder.parentElement.remove();
-
-          const tr = document.createElement('tr');
-          tr.className = 'hover:bg-[#202020]/40 transition-colors cursor-pointer';
-          tr.setAttribute('data-event-type', eType);
-          tr.setAttribute('data-task-id', evt.task_id || '');
-          tr.setAttribute('data-agent', evt.agent_id || evt.provider || '');
-
-          const timeStr = (evt.timestamp || '').substring(11, 19) || new Date().toISOString().substring(11, 19);
-          tr.innerHTML = `
-            <td class="py-3 px-4 text-[#A1A1AA]">${timeStr}</td>
-            <td class="py-3 px-4 text-indigo-300 font-semibold">${eType}</td>
-            <td class="py-3 px-4 text-cyan-400">${evt.task_id || '—'}</td>
-            <td class="py-3 px-4 text-[#D4D4D8]">${evt.agent_id || evt.provider || '—'}</td>
-            <td class="py-3 px-4 text-[#A1A1AA] truncate max-w-xs">${JSON.stringify(evt.payload || evt.data || evt.metadata || {})}</td>
-          `;
-          tbody.prepend(tr);
-
-          while (tbody.children.length > 250) {
-            tbody.lastElementChild.remove();
-          }
+        if (eventStreamPaused) {
+          // Frozen while the reader is looking; shown on Resume.
+          OPS.pausedEvents.push(evt);
+          if (OPS.pausedEvents.length > 500) OPS.pausedEvents.shift();
+          opsSyncStreamControls();
+          return;
         }
+        opsPrependEvents([evt]);
       } catch (err) {
         console.error('handleIncomingEvent error:', err, evt);
       }
@@ -2140,6 +2298,10 @@
     function appendLifecycleFeed(evt) {
       const feed = document.getElementById('lifecycle-feed');
       if (!feed) return;
+      const type = String(evt.event_type || evt.type || '');
+      // AUTH_SUCCESS is logged for every authenticated dashboard request; it
+      // would bury the account events this feed exists to show.
+      if (type.toUpperCase() === 'AUTH_SUCCESS') return;
       // Match the placeholder by data attribute, not by its Tailwind colour
       // class. `.text-[#71717A]` is not a valid CSS selector — the `[#71717A]`
       // part parses as an attribute selector with an illegal name, so
@@ -2151,12 +2313,11 @@
       if (placeholder) placeholder.remove();
 
       const line = document.createElement('div');
-      line.className = 'flex items-center justify-between p-2 rounded-lg bg-[#0E0E0E] border border-[#262626] text-xs';
-      const timeStr = new Date().toISOString().substring(11, 19);
+      line.className = 'ops-feed-line';
       line.innerHTML = `
-        <span class="text-indigo-400 font-bold">${evt.event_type || evt.type}</span>
-        <span class="text-[#A1A1AA] font-mono">${evt.agent_id || evt.account_id || ''}</span>
-        <span class="text-[#71717A] font-mono text-xs">${timeStr}</span>
+        <span class="ui-badge ui-badge-${opsEventTone(type)}" title="${ui.esc(type)}">${ui.esc(opsEventLabel(type))}</span>
+        <span class="ui-mono ui-muted ops-text">${ui.esc(evt.agent_id || evt.account_id || '')}</span>
+        <span class="ui-muted">${opsTime(evt.timestamp || new Date().toISOString())}</span>
       `;
       feed.prepend(line);
       while (feed.children.length > 50) feed.lastElementChild.remove();
@@ -2164,28 +2325,41 @@
 
     // ── Table Filters ────────────────────────────────────────────
     function filterEventsTable() {
-      const taskF = (document.getElementById('event-filter-task')?.value || '').toLowerCase().trim();
-      const typeF = (document.getElementById('event-filter-type')?.value || '').trim();
-      const agentF = (document.getElementById('event-filter-agent')?.value || '').toLowerCase().trim();
-
-      document.querySelectorAll('#events-tbody tr').forEach(row => {
-        const eType = row.getAttribute('data-event-type') || '';
-        const taskId = (row.getAttribute('data-task-id') || '').toLowerCase();
-        const agent = (row.getAttribute('data-agent') || '').toLowerCase();
-
-        const matchTask = !taskF || taskId.includes(taskF);
-        const matchType = !typeF || eType.startsWith(typeF);
-        const matchAgent = !agentF || agent.includes(agentF);
-
-        row.style.display = (matchTask && matchType && matchAgent) ? '' : 'none';
+      const tbody = document.getElementById('events-tbody');
+      if (!tbody) return;
+      const f = opsEventFilters();
+      let shown = 0;
+      let total = 0;
+      let authOnly = true;
+      tbody.querySelectorAll('tr[data-event-type]').forEach((row) => {
+        total++;
+        const ok = opsEventMatches(row, f);
+        row.style.display = ok ? '' : 'none';
+        if (ok) shown++;
+        if ((row.getAttribute('data-event-type') || '').toUpperCase() !== 'AUTH_SUCCESS') authOnly = false;
       });
+      const old = tbody.querySelector('tr[data-ops-filter-empty]');
+      if (old) old.remove();
+      if (total > 0 && shown === 0) {
+        const onlySignIns = authOnly && f.hideAuth;
+        const note = document.createElement('tr');
+        note.setAttribute('data-ops-filter-empty', '');
+        note.innerHTML = `<td colspan="5">${opsEmptyHtml(onlySignIns
+          ? { icon: 'fa-user-check', title: 'Only routine sign-ins so far', hint: `The latest ${total} events are all dashboard sign-ins (AUTH_SUCCESS). New task, routing and agent activity will show up here. Untick “Hide routine sign-ins” to see them.` }
+          : { icon: 'fa-filter', title: 'No activity matches these filters', hint: 'Change “Show”, clear the task or agent box, or untick “Hide routine sign-ins”.' })}</td>`;
+        tbody.appendChild(note);
+      }
+      opsUpdateEventsCount(shown, total);
     }
 
     function clearEventsTable() {
       const tbody = document.getElementById('events-tbody');
+      OPS.pausedEvents = [];
       if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-[#71717A] font-sans">Event ledger cleared. Waiting for new telemetry events...</td></tr>';
+        // Keep OPS.eventKeys, so the next poll does not bring cleared events back.
+        tbody.innerHTML = `<tr><td colspan="5">${opsEmptyHtml({ icon: 'fa-broom', title: 'Feed cleared', hint: 'New activity will appear here as it happens. Refresh reloads the latest 100 events.' })}</td></tr>`;
       }
+      opsSyncStreamControls();
     }
 
     function filterJobs(filter) {
@@ -2272,6 +2446,773 @@
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // ── Operations tabs: shared helpers ──────────────────────────
+    // Used by the dashboard, agents, flow, tasks, events and memory tabs.
+    // Everything these tabs render comes from agents, tasks, events or memory
+    // and is untrusted: interpolate it only through ui.esc()/escapeHtml(), and
+    // hand ids to handlers through data-* attributes, never through inline JS
+    // strings (an HTML-escaped quote is decoded again inside onclick="...").
+    const OPS = {
+      tasks: [],
+      tasksById: new Map(),
+      tasksLoaded: false,
+      tasksSig: '',
+      tasksView: 'board',
+      liveSig: '',
+      agents: [],
+      agentsSig: '',
+      eventsLoaded: false,
+      eventKeys: new Set(),
+      pausedEvents: [],
+      streamState: 'live',
+      memSeq: 0,
+      memKey: null,
+      memSig: '',
+      memLoadedOnce: false,
+      memSearchTimer: null,
+      retrSig: '',
+      retrLoaded: false,
+      handoffFetchedAt: 0,
+      handoffLoading: false,
+    };
+    try {
+      const savedView = localStorage.getItem('ops.tasksView');
+      if (savedView === 'board' || savedView === 'list') OPS.tasksView = savedView;
+    } catch (e) { /* storage unavailable: keep the default view */ }
+
+    // <time> with relative text, kept fresh by the ticker below.
+    function opsTime(value) {
+      if (!value) return '<span class="ui-muted">—</span>';
+      return ui.timeTag(value).replace('<time ', `<time data-ops-ts="${ui.esc(value)}" `);
+    }
+    setInterval(() => {
+      document.querySelectorAll('time[data-ops-ts]').forEach((el) => {
+        const raw = el.getAttribute('data-ops-ts');
+        const next = ui.relTime(/^\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw);
+        if (el.textContent !== next) el.textContent = next;
+      });
+    }, 30000);
+
+    function opsShort(text, keep) {
+      const s = String(text ?? '');
+      return s.length > keep ? s.slice(0, keep - 1) + '…' : s;
+    }
+
+    // Truncated id; full value on hover, click copies it.
+    function opsId(id, keep = 14) {
+      if (!id) return '<span class="ui-muted">—</span>';
+      return `<button type="button" class="ops-id" data-ops-copy="${ui.esc(id)}" title="${ui.esc(id)} (click to copy)">${ui.esc(opsShort(id, keep))}</button>`;
+    }
+
+    async function opsCopy(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        showToast(`Copied ${opsShort(text, 48)}`, 'success');
+      } catch (err) {
+        showToast('Could not copy to the clipboard', 'error');
+      }
+    }
+
+    // Same markup as ui.empty(), for use inside a larger template.
+    function opsEmptyHtml(o) {
+      return `<div class="ui-state">
+        <i class="fa-solid ${ui.esc(o.icon || 'fa-inbox')} ui-state-icon" aria-hidden="true"></i>
+        <div class="ui-state-title">${ui.esc(o.title || 'Nothing here yet')}</div>
+        ${o.hint ? `<div class="ui-state-hint">${ui.esc(o.hint)}</div>` : ''}</div>`;
+    }
+
+    // ui.loading/empty/error write one block; inside a CSS grid it must span every column.
+    function opsSpan(el) {
+      const node = typeof el === 'string' ? document.getElementById(el) : el;
+      if (node && node.firstElementChild) node.firstElementChild.classList.add('col-span-full');
+    }
+
+    // fetchWithAuth + JSON + a readable Error for non-2xx responses.
+    async function opsJson(url, options) {
+      const res = await fetchWithAuth(url, options);
+      let data = {};
+      try { data = await res.json(); } catch (e) { data = {}; }
+      if (!res.ok) {
+        const msg = (data && (data.message || data.error)) || `${res.status} ${res.statusText || 'request failed'}`;
+        const err = new Error(String(msg));
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    }
+
+    // ui.busy when there is a real button to lock, otherwise just run.
+    function opsBusy(btn, fn) {
+      const el = typeof btn === 'string' ? document.getElementById(btn) : btn;
+      return (el && el.tagName === 'BUTTON') ? ui.busy(el, fn) : fn();
+    }
+
+    function opsFieldError(id, message) {
+      const el = document.getElementById(id);
+      const err = document.getElementById(id + '-error');
+      if (el) {
+        el.classList.add('ops-invalid');
+        el.setAttribute('aria-invalid', 'true');
+        el.focus();
+      }
+      if (err) {
+        err.textContent = message;
+        err.classList.remove('hidden');
+      }
+    }
+
+    function opsClearFieldError(id) {
+      const el = document.getElementById(id);
+      const err = document.getElementById(id + '-error');
+      if (el) {
+        el.classList.remove('ops-invalid');
+        el.removeAttribute('aria-invalid');
+      }
+      if (err) {
+        err.textContent = '';
+        err.classList.add('hidden');
+      }
+    }
+
+    // Escape first, then wrap each search term in <mark>. Never builds HTML from raw text.
+    function opsHighlight(text, query) {
+      const src = String(text ?? '');
+      const terms = String(query || '').trim().split(/\s+/).filter(Boolean).slice(0, 8);
+      if (!terms.length) return ui.esc(src);
+      const re = new RegExp('(' + terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'gi');
+      return src.split(re).map((part, i) => (i % 2 === 1 ? `<mark class="ops-mark">${ui.esc(part)}</mark>` : ui.esc(part))).join('');
+    }
+
+    // Markdown -> sanitised HTML. marked output is untrusted (it passes raw HTML
+    // through), so parse it into an inert <template>, keep an allowlist of
+    // tags, drop every attribute except safe link targets, and unwrap the rest.
+    const OPS_MD_TAGS = new Set(['P', 'BR', 'HR', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 'STRONG', 'EM', 'B', 'I',
+      'DEL', 'S', 'CODE', 'PRE', 'BLOCKQUOTE', 'A', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'SPAN']);
+    const OPS_MD_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'TEMPLATE', 'NOSCRIPT', 'SVG', 'MATH',
+      'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'LINK', 'META', 'BASE', 'FRAME', 'FRAMESET', 'AUDIO', 'VIDEO', 'SOURCE', 'IMG']);
+    function opsSafeUrl(href) {
+      const u = String(href || '').replace(/[\u0000- \u007f-\u009f]/g, '');
+      if (!u) return null;
+      if (/^(https?:|mailto:)/i.test(u) || u.startsWith('#')) return u;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(u) || u.startsWith('//')) return null;
+      return u;
+    }
+    function opsSafeMarkdown(md) {
+      const source = String(md ?? '');
+      let html = '';
+      try {
+        if (window.marked && typeof marked.parse === 'function') {
+          // Belt and braces: raw HTML tokens are emitted as text, then the DOM
+          // allowlist below removes anything else that slipped through.
+          const renderer = new marked.Renderer();
+          renderer.html = (token) => ui.esc(typeof token === 'string' ? token : ((token && (token.text || token.raw)) || ''));
+          html = marked.parse(source, { async: false, renderer });
+        }
+      } catch (e) {
+        html = '';
+      }
+      if (typeof html !== 'string' || !html) return `<pre class="ops-pre">${ui.esc(source)}</pre>`;
+      const tpl = document.createElement('template');
+      tpl.innerHTML = html;
+      Array.from(tpl.content.querySelectorAll('*')).forEach((el) => {
+        const tag = el.tagName.toUpperCase();
+        if (OPS_MD_DROP.has(tag)) { el.remove(); return; }
+        if (!OPS_MD_TAGS.has(tag)) { el.replaceWith(...el.childNodes); return; }
+        const href = tag === 'A' ? opsSafeUrl(el.getAttribute('href')) : null;
+        Array.from(el.attributes).forEach((a) => el.removeAttribute(a.name));
+        if (href) {
+          el.setAttribute('href', href);
+          el.setAttribute('target', '_blank');
+          el.setAttribute('rel', 'noopener noreferrer');
+        }
+      });
+      return tpl.innerHTML;
+    }
+    // Shared so other tabs can render agent-written markdown the same safe way.
+    window.safeMarkdown = opsSafeMarkdown;
+
+    function opsFocusDispatch() {
+      showTab('dashboard');
+      const el = document.getElementById('quick-instruction');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => el.focus(), 150);
+      }
+    }
+
+    async function opsRefreshDashboard(btn) {
+      await opsBusy(btn, async () => {
+        await refreshData();
+        await loadDashboardHandoff(true);
+      });
+    }
+
+    // Delegated actions for every data-ops-* control. Capture phase, so a
+    // button inside a clickable task card does not also open the card.
+    document.addEventListener('click', (e) => {
+      const copyEl = e.target.closest && e.target.closest('[data-ops-copy]');
+      if (copyEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        opsCopy(copyEl.getAttribute('data-ops-copy'));
+        return;
+      }
+      const el = e.target.closest && e.target.closest('[data-ops-action]');
+      if (!el) return;
+      const action = el.getAttribute('data-ops-action');
+      const taskId = el.getAttribute('data-task-id');
+      if (action === 'task-details') {
+        const t = OPS.tasksById.get(taskId);
+        if (t) openTaskModal(t);
+      } else if (action === 'task-cancel') {
+        e.stopPropagation();
+        cancelTask(taskId, el);
+      } else if (action === 'task-run') {
+        e.stopPropagation();
+        executeSingleTask(taskId, el);
+      } else if (action === 'agent-ping') {
+        opsPingAgent(el);
+      } else if (action === 'mem-more') {
+        const content = el.parentElement && el.parentElement.querySelector('.ops-mem-content');
+        if (content) {
+          const clamped = content.classList.toggle('ops-clamp');
+          el.textContent = clamped ? 'Show more' : 'Show less';
+        }
+      } else if (action === 'open-handoff') {
+        showTab('memory');
+        toggleMemoryView('handoffs');
+      } else if (action === 'handoff-open') {
+        loadHistoricalHandoff(el.getAttribute('data-filename'));
+      } else if (action === 'handoff-current') {
+        loadHandoffs();
+      }
+    }, true);
+
+    // Keyboard support for div[role=button] cards.
+    document.addEventListener('keydown', (e) => {
+      const t = e.target;
+      if ((e.key === 'Enter' || e.key === ' ') && t && t.matches && t.matches('[role="button"][data-ops-action]')) {
+        e.preventDefault();
+        t.click();
+      }
+    });
+
+    function opsTaskId(t) {
+      return (t && (t.task_id || t.id)) || 'task-unknown';
+    }
+    function opsTaskTitle(t) {
+      return t.title || t.instruction || t.prompt || 'Untitled task';
+    }
+    function opsTaskAgent(t) {
+      return t.assigned_agent || t.assigned_to || t.worker || 'auto';
+    }
+    function opsTaskBucket(status) {
+      const s = String(status || 'READY').toUpperCase();
+      if (['READY', 'QUEUED', 'PENDING', 'BACKLOG'].includes(s)) return 'ready';
+      if (['RUNNING', 'IN_PROGRESS', 'PLANNING'].includes(s)) return 'running';
+      if (['COMPLETED', 'VERIFICATION_COMPLETE'].includes(s)) return 'completed';
+      return 'failed';
+    }
+    const OPS_CANCELLABLE = ['READY', 'QUEUED', 'PENDING', 'BACKLOG', 'RUNNING', 'IN_PROGRESS', 'PLANNING', 'BLOCKED', 'REVIEW'];
+
+    // ── Dashboard: current handoff hero ──────────────────────────
+    function opsHandoffNext(rec) {
+      if (!rec) return '';
+      return rec.next_action || (Array.isArray(rec.remaining_work) && rec.remaining_work[0]) || '';
+    }
+
+    function opsHandoffHero(data) {
+      const rec = data && data.record;
+      if (!rec) {
+        const hasNote = !!(data && data.markdown && !/^No active handoff/i.test(data.markdown));
+        return `<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="ops-eyebrow"><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i> Current handoff</div>
+            <div class="ops-next">${hasNote ? 'A handoff note is waiting' : 'No active handoff'}</div>
+            <p class="ui-help">${hasNote
+              ? 'It has no structured next step. Open it to read the full note.'
+              : 'When an agent checkpoints its work, its next step appears here so another agent (or you) can pick it up.'}</p>
+          </div>
+          ${hasNote ? '<button type="button" class="ui-btn ui-btn-secondary" data-ops-action="open-handoff">Read handoff</button>' : ''}
+        </div>`;
+      }
+      const next = opsHandoffNext(rec);
+      const goal = rec.objective || rec.task || '';
+      const from = rec.agent_id || rec.source_agent || 'an agent';
+      return `<div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="ops-eyebrow"><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i> Next step from the current handoff</div>
+            <div class="ops-next">${next ? ui.esc(next) : '<span class="ui-muted">No next step was recorded.</span>'}</div>
+            ${goal ? `<p class="text-sm text-[#A1A1AA] mt-2 ops-text"><strong class="text-[#EDEDED]">Goal:</strong> ${ui.esc(goal)}</p>` : ''}
+            <div class="ops-meta mt-3">
+              <span>From <strong>${ui.esc(from)}</strong></span>
+              ${rec.recommended_agent ? `<span>Suggested next agent <strong>${ui.esc(rec.recommended_agent)}</strong></span>` : ''}
+              <span>Written ${opsTime(rec.created_at)}</span>
+              ${rec.is_terminal ? ui.badge('done', 'Finished') : ''}
+            </div>
+          </div>
+          <div class="ops-toolbar shrink-0">
+            <button type="button" class="ui-btn ui-btn-secondary" data-ops-action="open-handoff">View full handoff</button>
+          </div>
+        </div>`;
+    }
+
+    // Throttled: renderOverview runs on every 3s poll, the handoff changes rarely.
+    async function loadDashboardHandoff(force = false) {
+      const el = document.getElementById('dash-handoff');
+      if (!el || OPS.handoffLoading) return;
+      if (!force && Date.now() - OPS.handoffFetchedAt < 15000) return;
+      OPS.handoffLoading = true;
+      try {
+        const data = await opsJson('/api/handoff');
+        el.innerHTML = opsHandoffHero(data);
+      } catch (err) {
+        ui.error(el, err, () => loadDashboardHandoff(true));
+      } finally {
+        OPS.handoffFetchedAt = Date.now();
+        OPS.handoffLoading = false;
+      }
+    }
+
+    // ── Agents helpers ───────────────────────────────────────────
+    const OPS_AGENT_STATUS = {
+      ONLINE: ['online', 'Online'],
+      IDLE: ['online', 'Idle'],
+      WORKING: ['working', 'Working'],
+      BUSY: ['working', 'Busy'],
+      NOT_CONFIGURED: ['warning', 'Not set up'],
+      OFFLINE: ['offline', 'Offline'],
+      DISABLED: ['disabled', 'Disabled'],
+    };
+
+    function opsFilterAgents() {
+      OPS.agentsSig = '';
+      renderAgents(null);
+    }
+
+    async function opsRefreshAgents(btn) {
+      const grid = document.getElementById('agents-grid');
+      await opsBusy(btn || 'agents-refresh-btn', async () => {
+        try {
+          const d = await opsJson('/api/agents');
+          OPS.agentsSig = '';
+          renderAgents(d);
+        } catch (err) {
+          showToast(`Couldn't load agents: ${err.message}`, 'error');
+          if (grid) {
+            ui.error(grid, err, () => opsRefreshAgents());
+            opsSpan(grid);
+          }
+        }
+      });
+    }
+
+    async function opsPingAgent(btn) {
+      const id = btn.getAttribute('data-agent-id');
+      if (!id) return;
+      await opsBusy(btn, async () => {
+        try {
+          const d = await opsJson(`/api/accounts/${encodeURIComponent(id)}/health`, { method: 'POST' });
+          showToast(`${id}: ${d.healthy ? 'healthy' : 'not healthy'}${d.reason ? ' · ' + d.reason : ''}`, d.healthy ? 'success' : 'warning');
+          refreshData();
+        } catch (err) {
+          showToast(`Health check for ${id} failed: ${err.message}`, 'error');
+        }
+      });
+    }
+
+    // ── Tasks helpers ────────────────────────────────────────────
+    function opsSetTasksView(view) {
+      OPS.tasksView = view === 'list' ? 'list' : 'board';
+      try { localStorage.setItem('ops.tasksView', OPS.tasksView); } catch (e) { /* ignore */ }
+      OPS.tasksSig = '';
+      opsRenderTasks();
+    }
+
+    function opsFilterTasks() {
+      OPS.tasksSig = '';
+      opsRenderTasks();
+    }
+
+    async function opsRefreshTasks(btn) {
+      await opsBusy(btn || 'tasks-refresh-btn', async () => {
+        try {
+          const d = await opsJson('/api/tasks');
+          OPS.tasksSig = '';
+          renderTasks(d);
+        } catch (err) {
+          showToast(`Couldn't load tasks: ${err.message}`, 'error');
+          if (!OPS.tasksLoaded) opsTasksError(err);
+        }
+      });
+    }
+
+    function opsTasksError(err) {
+      ['tasks-ready', 'tasks-running', 'tasks-completed', 'tasks-failed'].forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (i === 0) ui.error(el, err, () => opsRefreshTasks());
+        else el.innerHTML = '';
+      });
+      const tbody = document.getElementById('tasks-tbody');
+      if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="6"></td></tr>';
+        ui.error(tbody.querySelector('td'), err, () => opsRefreshTasks());
+      }
+    }
+
+    function opsTaskActions(t, compact) {
+      const id = ui.esc(opsTaskId(t));
+      const s = String(t.status || 'READY').toUpperCase();
+      const out = [];
+      if (opsTaskBucket(s) === 'ready') {
+        out.push(`<button type="button" class="ui-btn ui-btn-secondary" data-ops-action="task-run" data-task-id="${id}" title="Start the task now"><i class="fa-solid fa-play" aria-hidden="true"></i>${compact ? '' : ' Run now'}</button>`);
+      }
+      if (OPS_CANCELLABLE.includes(s)) {
+        out.push(`<button type="button" class="ui-btn ui-btn-danger" data-ops-action="task-cancel" data-task-id="${id}" title="Cancel this task"><i class="fa-solid fa-xmark" aria-hidden="true"></i>${compact ? '' : ' Cancel'}</button>`);
+      }
+      return out.join('');
+    }
+
+    function opsTaskCard(t) {
+      const id = opsTaskId(t);
+      const agent = opsTaskAgent(t);
+      return `<div class="ops-task-card" role="button" tabindex="0" data-ops-action="task-details" data-task-id="${ui.esc(id)}" title="Open task details">
+          <div class="flex items-center justify-between gap-2">${ui.badge(String(t.status || 'READY').toLowerCase())}<span class="text-xs ui-muted">${opsTime(t.created_at)}</span></div>
+          <div class="ops-task-title">${ui.esc(opsTaskTitle(t))}</div>
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="ui-muted truncate min-w-0" title="${ui.esc(agent)}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${ui.esc(agent)}</span>
+            ${opsId(id, 13)}
+          </div>
+          ${t.requires_approval ? `<div class="mt-2">${ui.badge('pending_approval', 'Needs approval')}</div>` : ''}
+        </div>`;
+    }
+
+    function opsTaskRow(t) {
+      const id = opsTaskId(t);
+      return `<tr>
+          <td style="min-width:16rem;max-width:28rem"><button type="button" class="text-left ops-text hover:underline" data-ops-action="task-details" data-task-id="${ui.esc(id)}">${ui.esc(opsShort(opsTaskTitle(t), 160))}</button></td>
+          <td>${ui.badge(String(t.status || 'READY').toLowerCase())}${t.requires_approval ? ' ' + ui.badge('pending_approval', 'Needs approval') : ''}</td>
+          <td class="ui-mono text-xs whitespace-nowrap">${ui.esc(opsTaskAgent(t))}</td>
+          <td class="whitespace-nowrap">${opsTime(t.created_at)}</td>
+          <td>${opsId(id)}</td>
+          <td><div class="flex gap-1.5 justify-end">${opsTaskActions(t, true)}</div></td>
+        </tr>`;
+    }
+
+    function opsRenderTasks() {
+      const readyEl = document.getElementById('tasks-ready');
+      if (!readyEl) return;
+      const all = OPS.tasks.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+      const q = (document.getElementById('tasks-filter')?.value || '').trim().toLowerCase();
+      const shown = q ? all.filter((t) => [opsTaskId(t), opsTaskTitle(t), opsTaskAgent(t), t.status].join(' ').toLowerCase().includes(q)) : all;
+
+      const counts = { ready: 0, running: 0, completed: 0, failed: 0 };
+      all.forEach((t) => { counts[opsTaskBucket(t.status)]++; });
+      const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      setText('badge-ready', counts.ready);
+      setText('badge-running', counts.running);
+      setText('badge-completed', counts.completed);
+      setText('badge-failed', counts.failed);
+      setText('flow-count-ready', counts.ready);
+      setText('flow-count-running', counts.running);
+      setText('flow-count-completed', counts.completed);
+      setText('flow-count-failed', counts.failed);
+      setText('sidebar-tasks-badge', counts.ready + counts.running);
+      setText('tasks-count', q ? `${shown.length} of ${all.length} tasks match` : `${all.length} task${all.length === 1 ? '' : 's'}`);
+
+      const board = document.getElementById('tasks-board');
+      const listWrap = document.getElementById('tasks-list');
+      if (board) board.classList.toggle('hidden', OPS.tasksView !== 'board');
+      if (listWrap) listWrap.classList.toggle('hidden', OPS.tasksView !== 'list');
+      const bBtn = document.getElementById('tasks-view-board');
+      const lBtn = document.getElementById('tasks-view-list');
+      if (bBtn) bBtn.setAttribute('aria-pressed', String(OPS.tasksView === 'board'));
+      if (lBtn) lBtn.setAttribute('aria-pressed', String(OPS.tasksView === 'list'));
+
+      const sig = OPS.tasksView + '|' + q + '|' + JSON.stringify(shown.map((t) => [opsTaskId(t), t.status, opsTaskTitle(t), opsTaskAgent(t), t.created_at, t.requires_approval]));
+      if (sig === OPS.tasksSig) return;
+      OPS.tasksSig = sig;
+
+      if (OPS.tasksView === 'board') {
+        const cols = { ready: [], running: [], completed: [], failed: [] };
+        shown.forEach((t) => cols[opsTaskBucket(t.status)].push(opsTaskCard(t)));
+        const emptyText = {
+          ready: q ? 'No waiting tasks match' : 'Nothing waiting. New tasks land here.',
+          running: q ? 'No running tasks match' : 'No agent is working right now.',
+          completed: q ? 'No finished tasks match' : 'Finished tasks will show up here.',
+          failed: q ? 'No failed tasks match' : 'Nothing has failed.',
+        };
+        Object.keys(cols).forEach((k) => {
+          const el = document.getElementById(`tasks-${k}`);
+          if (el) el.innerHTML = cols[k].length ? cols[k].join('') : `<div class="ops-col-empty">${ui.esc(emptyText[k])}</div>`;
+        });
+      } else {
+        const tbody = document.getElementById('tasks-tbody');
+        if (!tbody) return;
+        if (!shown.length) {
+          tbody.innerHTML = `<tr><td colspan="6">${opsEmptyHtml(q
+            ? { icon: 'fa-magnifying-glass', title: 'No tasks match your search', hint: 'Try a different word, or clear the search box.' }
+            : { icon: 'fa-list-check', title: 'No tasks yet', hint: 'Use “New task” to give the agents something to do.' })}</td></tr>`;
+        } else {
+          tbody.innerHTML = shown.map(opsTaskRow).join('');
+        }
+      }
+    }
+
+    // ── Events helpers ───────────────────────────────────────────
+    function opsEventTone(type) {
+      const t = String(type || '').toUpperCase();
+      if (/FAIL|ERROR|REJECT|DENIED|EXHAUSTED|LIMIT_REACHED|PREVENTED|TERMINATED/.test(t)) return 'bad';
+      if (/COMPLETE|SUCCESS|APPROVED|APPLIED|GRANTED|SELECTED|CREATED/.test(t)) return 'ok';
+      if (/WARN|STALE|ESCALAT|APPROVAL_REQUIRED|FAILOVER/.test(t)) return 'warn';
+      if (/START|QUEUED|ASSIGNED|REQUESTED|CALLED|RETRIEVAL/.test(t)) return 'busy';
+      return 'idle';
+    }
+
+    function opsEventLabel(type) {
+      const s = String(type || 'event').replace(/[._]+/g, ' ').trim().toLowerCase();
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    function opsEventSummary(payload) {
+      if (payload === null || payload === undefined) return '';
+      if (typeof payload !== 'object') return opsShort(String(payload), 160);
+      const parts = [];
+      for (const [k, v] of Object.entries(payload)) {
+        if (v === null || v === undefined || v === '') continue;
+        let val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        if (val.length > 60) val = val.slice(0, 59) + '…';
+        parts.push(`${k}: ${val}`);
+        if (parts.length >= 4) break;
+      }
+      return parts.join(' · ');
+    }
+
+    function opsEventKey(evt) {
+      return [evt.event_id || '', evt.timestamp || '', evt.event_type || evt.type || '', evt.task_id || '', evt.agent_id || evt.account_id || ''].join('|');
+    }
+
+    function opsEventRow(evt) {
+      const type = String(evt.event_type || evt.type || '');
+      const agent = evt.agent_id || evt.provider || '';
+      const payload = evt.payload || evt.data || evt.metadata || {};
+      let full = '';
+      try { full = JSON.stringify(payload, null, 2); } catch (e) { full = String(payload); }
+      const hasDetails = full && full !== '{}' && full !== '[]';
+      const summary = opsEventSummary(payload) || 'Show details';
+      return `<tr data-event-type="${ui.esc(type)}" data-task-id="${ui.esc(evt.task_id || '')}" data-agent="${ui.esc(agent)}">
+          <td class="whitespace-nowrap">${opsTime(evt.timestamp)}</td>
+          <td><span class="ui-badge ui-badge-${opsEventTone(type)}" title="${ui.esc(type)}">${ui.esc(opsEventLabel(type))}</span></td>
+          <td>${evt.task_id ? opsId(evt.task_id, 13) : '<span class="ui-muted">—</span>'}</td>
+          <td class="ui-mono text-xs ops-text">${agent ? ui.esc(agent) : '<span class="ui-muted">—</span>'}</td>
+          <td class="text-xs" style="min-width:14rem">${hasDetails
+            ? `<details class="ops-evt-details"><summary>${ui.esc(summary)}</summary><pre>${ui.esc(full)}</pre></details>`
+            : '<span class="ui-muted">No details</span>'}</td>
+        </tr>`;
+    }
+
+    function opsEventFilters() {
+      return {
+        task: (document.getElementById('event-filter-task')?.value || '').toLowerCase().trim(),
+        type: (document.getElementById('event-filter-type')?.value || '').trim(),
+        agent: (document.getElementById('event-filter-agent')?.value || '').toLowerCase().trim(),
+        hideAuth: !!document.getElementById('events-hide-auth')?.checked,
+      };
+    }
+
+    function opsEventMatches(row, f) {
+      const eType = (row.getAttribute('data-event-type') || '').toUpperCase();
+      const taskId = (row.getAttribute('data-task-id') || '').toLowerCase();
+      const agent = (row.getAttribute('data-agent') || '').toLowerCase();
+      if (f.hideAuth && eType === 'AUTH_SUCCESS') return false;
+      if (f.type === '@errors') {
+        if (opsEventTone(eType) !== 'bad') return false;
+      } else if (f.type && !f.type.split(',').some((p) => eType.startsWith(p))) {
+        return false;
+      }
+      if (f.task && !taskId.includes(f.task)) return false;
+      if (f.agent && !agent.includes(f.agent)) return false;
+      return true;
+    }
+
+    function opsFollowNewest() {
+      return !!document.getElementById('events-follow')?.checked;
+    }
+
+    function opsUpdateEventsCount(shown, total) {
+      const el = document.getElementById('events-count');
+      if (!el) return;
+      if (shown === undefined) {
+        const rows = document.querySelectorAll('#events-tbody tr[data-event-type]');
+        total = rows.length;
+        shown = Array.from(rows).filter((r) => r.style.display !== 'none').length;
+      }
+      let text = total ? (shown === total ? `${total} events` : `Showing ${shown} of ${total} events`) : '';
+      if (eventStreamPaused) text += `${text ? ' · ' : ''}Paused: the feed is frozen while you read`;
+      el.textContent = text;
+    }
+
+    // Prepend newest-first events that are not on screen yet, keeping the
+    // reader's scroll position unless "Follow newest" is on.
+    function opsPrependEvents(evts) {
+      const tbody = document.getElementById('events-tbody');
+      if (!tbody || !evts.length) return;
+      const fresh = evts.filter((e) => {
+        const k = opsEventKey(e);
+        if (OPS.eventKeys.has(k)) return false;
+        OPS.eventKeys.add(k);
+        return true;
+      });
+      if (!fresh.length) return;
+      if (OPS.eventKeys.size > 5000) OPS.eventKeys = new Set(fresh.map(opsEventKey));
+      tbody.querySelectorAll('tr:not([data-event-type])').forEach((r) => r.remove());
+      const wrap = document.getElementById('events-table-wrapper');
+      const beforeHeight = wrap ? wrap.scrollHeight : 0;
+      const beforeTop = wrap ? wrap.scrollTop : 0;
+      const tpl = document.createElement('template');
+      tpl.innerHTML = fresh.map(opsEventRow).join('');
+      const f = opsEventFilters();
+      tpl.content.querySelectorAll('tr').forEach((r) => { r.style.display = opsEventMatches(r, f) ? '' : 'none'; });
+      tbody.prepend(tpl.content);
+      while (tbody.children.length > 250) tbody.lastElementChild.remove();
+      if (wrap) wrap.scrollTop = opsFollowNewest() ? 0 : beforeTop + (wrap.scrollHeight - beforeHeight);
+      filterEventsTable();
+    }
+
+    function opsSetStreamPill(state) {
+      const pill = document.getElementById('stream-status-pill');
+      if (!pill) return;
+      const map = { live: ['ops-pill-live', 'Live'], reconnecting: ['ops-pill-warn', 'Reconnecting…'], paused: ['ops-pill-idle', 'Paused'] };
+      const [cls, label] = map[state] || map.live;
+      pill.className = `ops-pill ${cls}`;
+      pill.innerHTML = `<span class="ui-dot" aria-hidden="true"></span> ${label}`;
+    }
+
+    function opsSyncStreamControls() {
+      const btn = document.getElementById('btn-toggle-stream');
+      if (btn) {
+        const hideAuth = !!document.getElementById('events-hide-auth')?.checked;
+        const waiting = OPS.pausedEvents.filter((e) => !(hideAuth && String(e.event_type || e.type || '').toUpperCase() === 'AUTH_SUCCESS')).length;
+        btn.innerHTML = eventStreamPaused
+          ? `<i class="fa-solid fa-play" aria-hidden="true"></i> Resume${waiting ? ` (${waiting} new)` : ''}`
+          : '<i class="fa-solid fa-pause" aria-hidden="true"></i> Pause';
+      }
+      opsSetStreamPill(eventStreamPaused ? 'paused' : OPS.streamState);
+      opsUpdateEventsCount();
+    }
+
+    async function opsRefreshEvents(btn) {
+      await opsBusy(btn, () => loadEvents({ force: true }));
+    }
+
+    // ── Memory helpers ───────────────────────────────────────────
+    function opsMemorySearchChanged() {
+      clearTimeout(OPS.memSearchTimer);
+      const count = document.getElementById('memory-count');
+      if (count) count.textContent = 'Searching…';
+      OPS.memSearchTimer = setTimeout(() => loadMemories({ reset: true }), 250);
+    }
+
+    function opsClearMemoryFilters() {
+      ['mem-filter-search', 'mem-filter-scope', 'mem-filter-imp', 'mem-filter-agent'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      loadMemories({ reset: true });
+    }
+
+    function opsUpdateMemoryCounter() {
+      const el = document.getElementById('mem-add-content');
+      const c = document.getElementById('mem-add-counter');
+      if (el && c) c.textContent = String(el.value.length);
+    }
+
+    // Heuristic guard: memory is plain text every agent reads, never a secret store.
+    function opsLooksLikeSecret(text) {
+      return /(api[_-]?key|secret|passw(or)?d|token|bearer)\s*[:=]\s*\S{6,}|sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text);
+    }
+
+    function opsMemoryCard(r, q) {
+      const id = r.memory_id || r.id;
+      const imp = Number(r.importance || 3);
+      const impLabel = { 5: 'Critical', 4: 'High', 3: 'Medium', 2: 'Low', 1: 'Minimal' }[imp] || String(imp);
+      const tags = Array.isArray(r.tags) ? r.tags.slice(0, 6) : [];
+      return `<article class="ui-card space-y-2.5">
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="ops-chip">${ui.esc(String(r.scope || 'PROJECT').toLowerCase())}</span>
+            <span class="ops-chip" title="Importance ${imp} of 5"><i class="fa-solid fa-star ${imp >= 4 ? 'text-amber-400' : ''}" aria-hidden="true"></i> ${ui.esc(impLabel)}</span>
+            <span class="ui-muted">by <strong class="text-[#D4D4D8]">${ui.esc(r.source_agent || 'unknown')}</strong></span>
+            <span class="ui-muted ml-auto">${opsTime(r.created_at || r.timestamp)}</span>
+          </div>
+          <div class="ops-mem-content ops-clamp ops-pre text-sm text-[#EDEDED]">${opsHighlight(r.content || '', q)}</div>
+          <button type="button" class="ui-btn ui-btn-ghost hidden" style="min-height:0;padding:.2rem .4rem" data-ops-action="mem-more">Show more</button>
+          <div class="ops-meta text-xs">
+            <span>ID ${opsId(id)}</span>
+            ${r.task_id ? `<span>Task ${opsId(r.task_id)}</span>` : ''}
+            ${tags.map((t) => `<span class="ops-chip">#${ui.esc(t)}</span>`).join('')}
+          </div>
+        </article>`;
+    }
+
+    // Show "Show more" only on cards whose text is actually clamped.
+    function opsMarkOverflow(root) {
+      root.querySelectorAll('.ops-mem-content').forEach((el) => {
+        const btn = el.parentElement.querySelector('[data-ops-action="mem-more"]');
+        if (btn) btn.classList.toggle('hidden', el.scrollHeight <= el.clientHeight + 2);
+      });
+    }
+
+    function opsHandoffDetail(rec, opts = {}) {
+      if (!rec) {
+        const hasNote = !!(opts.markdown && !/^No active handoff/i.test(opts.markdown));
+        return opsEmptyHtml({
+          icon: 'fa-flag',
+          title: 'No active handoff',
+          hint: hasNote
+            ? 'There is a plain handoff note without a structured next step. Open “Full handoff note” below.'
+            : 'When an agent checkpoints its work with a handoff, it shows up here with its next step.',
+        });
+      }
+      const next = opsHandoffNext(rec);
+      const list = (label, arr) => (Array.isArray(arr) && arr.length
+        ? `<div><div class="ops-eyebrow mb-1">${ui.esc(label)}</div><ul class="list-disc pl-5 space-y-1 text-[#D4D4D8]">${arr.slice(0, 12).map((x) => `<li class="ops-text">${ui.esc(typeof x === 'string' ? x : JSON.stringify(x))}</li>`).join('')}</ul></div>`
+        : '');
+      return `${opts.historical ? `<div class="ops-meta"><span class="ops-chip"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Archived: ${ui.esc(opts.filename || '')}</span><button type="button" class="ui-btn ui-btn-ghost" data-ops-action="handoff-current">Back to current</button></div>` : ''}
+        <div class="p-4 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <div class="ops-eyebrow" style="color:#FCD34D">Next step</div>
+          <div class="ops-next">${next ? ui.esc(next) : '<span class="ui-muted">No next step recorded.</span>'}</div>
+        </div>
+        <div class="ops-meta">
+          <span>From <strong>${ui.esc(rec.agent_id || rec.source_agent || 'unknown')}</strong></span>
+          ${rec.recommended_agent ? `<span>Suggested next agent <strong>${ui.esc(rec.recommended_agent)}</strong></span>` : ''}
+          <span>Written ${opsTime(rec.created_at)}</span>
+          ${rec.task_id ? `<span>Task ${opsId(rec.task_id)}</span>` : ''}
+        </div>
+        ${rec.objective || rec.task ? `<p class="ops-text text-[#D4D4D8]"><strong class="text-white">Goal:</strong> ${ui.esc(rec.objective || rec.task)}</p>` : ''}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          ${list('Done', rec.completed)}${list('Still to do', rec.remaining_work)}${list('Decisions', rec.decisions)}${list('Files changed', rec.files_modified)}${list('Errors', rec.errors)}
+        </div>`;
+    }
+
+    async function opsRefreshHandoffs(btn) {
+      await opsBusy(btn, async () => {
+        await loadHandoffs();
+      });
+    }
+
     async function refreshData() {
       try {
         if (!authToken) {
@@ -2327,95 +3268,54 @@
     function renderLiveExecutionWidget(status, tasksData) {
       const widget = document.getElementById('live-execution-widget');
       if (!widget) return;
-
-      const tasks = (tasksData && tasksData.tasks) ? tasksData.tasks : [];
-      const runningTask = tasks.find(t => {
-        const s = (t.status || '').toUpperCase();
-        return s === 'RUNNING' || s === 'IN_PROGRESS' || s === 'PLANNING';
-      });
-
-      if (runningTask) {
-        const id = runningTask.task_id || runningTask.id || 'task-active';
-        const title = runningTask.title || runningTask.instruction || runningTask.prompt || 'Executing task...';
-        const agent = runningTask.assigned_agent || runningTask.assigned_to || runningTask.worker || 'Auto Router';
-        const stage = runningTask.stage || 'Executing Tool & Instruction Flow';
-
-        widget.innerHTML = `
-          <div class="flex items-center justify-between border-b border-[#262626] pb-3">
-            <div class="flex items-center gap-3">
-              <span class="w-3 h-3 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.8)] animate-pulse"></span>
-              <span class="text-xs font-semibold text-white uppercase tracking-wider font-mono">Live Execution Pipeline</span>
-              <span class="text-xs px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 font-mono font-bold">${escapeHtml(id)}</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-[#A1A1AA] font-mono">Agent: <strong class="text-cyan-400">${escapeHtml(agent)}</strong></span>
-              <button onclick="cancelTask('${escapeHtml(id)}')" class="px-2.5 py-1 bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded text-xs transition">
-                <i class="fa-solid fa-stop text-xs"></i> Stop
-              </button>
-            </div>
-          </div>
-          <div class="space-y-3">
-            <div class="text-sm font-medium text-[#FAFAFA] font-sans">${escapeHtml(title)}</div>
-            <div class="flex items-center gap-2 text-xs text-[#A1A1AA] font-mono">
-              <span class="text-indigo-400"><i class="fa-solid fa-spinner fa-spin"></i></span>
-              <span>Current Stage: <strong class="text-white">${escapeHtml(stage)}</strong></span>
-            </div>
-          </div>
-        `;
-        return;
-      }
-
-      if (tasks.length > 0) {
-        const latestTask = tasks[0];
-        const id = latestTask.task_id || latestTask.id || 'task-latest';
-        const title = latestTask.title || latestTask.instruction || latestTask.prompt || 'Task instruction';
-        const st = (latestTask.status || 'READY').toUpperCase();
-        const agent = latestTask.assigned_agent || latestTask.assigned_to || latestTask.worker || 'Auto';
-        const isFailed = st === 'FAILED' || st === 'ERROR';
-        const isComplete = st === 'COMPLETED' || st === 'VERIFICATION_COMPLETE';
-        const badgeColor = isFailed ? 'bg-rose-950/80 text-rose-300 border-rose-800' : (isComplete ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800' : 'bg-[#181818] text-[#FAFAFA] border-[#333333]');
-        const dotColor = isFailed ? 'bg-rose-500' : (isComplete ? 'bg-emerald-500' : 'bg-amber-500');
-
-        let extraNotice = '';
-        if (isFailed && latestTask.errors && latestTask.errors.length > 0) {
-          extraNotice = `<div class="p-2.5 bg-rose-950/40 border border-rose-800/50 rounded text-xs text-rose-300 font-mono truncate"><i class="fa-solid fa-triangle-exclamation text-rose-400 mr-1.5"></i>${escapeHtml(latestTask.errors[0])}</div>`;
+      if (!tasksData || !Array.isArray(tasksData.tasks)) {
+        if (!OPS.liveSig) {
+          widget.innerHTML = opsEmptyHtml({ icon: 'fa-plug-circle-exclamation', title: 'Pipeline status unavailable', hint: 'Mission Control could not load tasks. It retries automatically every few seconds.' });
         }
+        return;
+      }
+      const tasks = tasksData.tasks.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+      tasks.forEach((t) => OPS.tasksById.set(opsTaskId(t), t));
+      const runningTask = tasks.find((t) => opsTaskBucket(t.status) === 'running');
+      const shown = runningTask || tasks[0] || null;
+      const sig = shown ? JSON.stringify([opsTaskId(shown), shown.status, shown.stage, opsTaskTitle(shown), opsTaskAgent(shown), (shown.errors || []).length, !!runningTask]) : 'empty';
+      if (sig === OPS.liveSig) return;
+      OPS.liveSig = sig;
 
+      if (!shown) {
         widget.innerHTML = `
-          <div class="flex items-center justify-between border-b border-[#262626] pb-3">
-            <div class="flex items-center gap-3">
-              <span class="w-2.5 h-2.5 rounded-full ${dotColor}"></span>
-              <span class="text-xs font-semibold text-white uppercase tracking-wider font-mono">Pipeline Status — Last Activity</span>
-              <span class="text-xs px-2.5 py-0.5 rounded font-mono font-bold border ${badgeColor}">${escapeHtml(st)}</span>
-            </div>
-            <button id="inspect-latest-btn" class="px-3 py-1 bg-[#181818] hover:bg-[#222222] text-[#EDEDED] border border-[#2E2E2E] rounded text-xs transition">
-              Inspect Task Details
-            </button>
+          <div class="ui-card-header" style="margin-bottom:0">
+            <div><h3 class="ui-card-title">Pipeline</h3><p class="ui-card-subtitle">Nothing is queued or running.</p></div>
+            ${ui.badge('ready', 'Idle')}
           </div>
-          <div class="space-y-2">
-            <div class="flex items-center justify-between text-xs font-mono text-[#A1A1AA]">
-              <span>ID: <strong class="text-indigo-300">${escapeHtml(id)}</strong> · Worker: <strong class="text-cyan-400">${escapeHtml(agent)}</strong></span>
-              <span>Updated: ${latestTask.updated_at ? escapeHtml(latestTask.updated_at.substring(11, 19)) : (latestTask.created_at ? escapeHtml(latestTask.created_at.substring(11, 19)) : 'recently')}</span>
-            </div>
-            <div class="text-xs text-[#FAFAFA] font-sans truncate">${escapeHtml(title)}</div>
-            ${extraNotice}
-          </div>
-        `;
-        const btn = widget.querySelector('#inspect-latest-btn');
-        if (btn) btn.onclick = () => openTaskModal(latestTask);
+          ${opsEmptyHtml({ icon: 'fa-mug-hot', title: 'All quiet', hint: 'Describe a task in “Give the agents a task” to get started.' })}`;
         return;
       }
 
+      const id = opsTaskId(shown);
+      const st = String(shown.status || 'READY').toLowerCase();
+      const errors = Array.isArray(shown.errors) ? shown.errors : [];
       widget.innerHTML = `
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <span class="text-xs font-semibold text-white uppercase tracking-wider font-mono">Execution Pipeline Ready</span>
+        <div class="ui-card-header" style="margin-bottom:0">
+          <div class="min-w-0">
+            <h3 class="ui-card-title">${runningTask ? 'Running now' : 'Latest task'}</h3>
+            <p class="ui-card-subtitle">${runningTask ? 'The task an agent is working on at this moment.' : 'No task is running. This is the most recent one.'}</p>
           </div>
-          <span class="text-xs text-emerald-400 font-mono font-medium">All Queues Standby</span>
+          ${ui.badge(st)}
         </div>
-        <p class="text-xs text-[#71717A] font-sans">No tasks currently queued or running. Enter an instruction below to dispatch to the autonomous agent swarm.</p>
-      `;
+        <p class="text-sm text-white ops-text">${ui.esc(opsShort(opsTaskTitle(shown), 280))}</p>
+        <div class="ops-meta">
+          <span>Agent <strong>${ui.esc(opsTaskAgent(shown))}</strong></span>
+          ${runningTask ? `<span>Stage <strong>${ui.esc(shown.stage || 'Executing')}</strong></span>` : ''}
+          <span>${runningTask ? 'Started' : 'Created'} ${opsTime(runningTask ? (shown.started_at || shown.created_at) : shown.created_at)}</span>
+          <span>ID ${opsId(id)}</span>
+        </div>
+        ${errors.length ? `<div class="p-2.5 rounded-lg border border-rose-800/60 bg-rose-950/30 text-xs text-rose-300 ops-text"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ${ui.esc(opsShort(errors[0], 300))}</div>` : ''}
+        <div class="ops-toolbar">
+          <button type="button" class="ui-btn ui-btn-secondary" data-ops-action="task-details" data-task-id="${ui.esc(id)}">Details</button>
+          ${runningTask ? `<button type="button" class="ui-btn ui-btn-danger" data-ops-action="task-cancel" data-task-id="${ui.esc(id)}"><i class="fa-solid fa-stop" aria-hidden="true"></i> Stop</button>` : ''}
+          <button type="button" class="ui-btn ui-btn-ghost" onclick="showTab('tasks')">All tasks <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+        </div>`;
     }
 
     function renderOverview(status, metricsData) {
@@ -2432,58 +3332,46 @@
         }
       });
 
-      // 2. Top 4 Stat Cards
-      const statAccts = document.getElementById('stat-accounts');
-      if (statAccts) {
-        const onlineCount = m.online ?? status.healthy_accounts ?? mc.accounts_healthy ?? 0;
-        const totalCount = m.registered ?? status.registered_accounts ?? mc.accounts_total ?? 0;
-        statAccts.textContent = `${onlineCount} / ${totalCount} Online`;
+      const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      if (!status.mission_control && status.running_tasks === undefined) {
+        // /api/status failed; leave the last good numbers and say so.
+        setText('stat-accounts-sub', 'Status unavailable, retrying…');
+        return;
       }
-      const statAcctsSub = document.getElementById('stat-accounts-sub');
-      if (statAcctsSub) {
-        statAcctsSub.textContent = `${m.signed_in ?? status.healthy_accounts ?? 0} auth'd · ${m.healthy ?? status.healthy_accounts ?? 0} healthy · ${m.idle ?? status.active_workers ?? 0} idle`;
-      }
+      const num = (v) => Number(v || 0).toLocaleString();
 
-      const statWorkers = document.getElementById('stat-workers');
-      if (statWorkers) {
-        statWorkers.textContent = `${status.active_workers || mc.active_workers_count || 17} Active`;
-      }
-      const statWorkersSub = document.getElementById('stat-workers-sub');
-      if (statWorkersSub) {
-        statWorkersSub.textContent = `${(status.active_workers_list || []).length || 17} Swarm Worker Adapters`;
-      }
+      // 2. At-a-glance tiles (real values only; no placeholder fallbacks)
+      const online = m.online ?? status.healthy_accounts ?? mc.accounts_healthy ?? 0;
+      const total = m.registered ?? status.registered_accounts ?? mc.accounts_total ?? 0;
+      setText('stat-accounts', `${num(online)} of ${num(total)}`);
+      setText('stat-accounts-sub', total
+        ? `${num(m.healthy ?? status.healthy_accounts)} healthy · ${num(m.busy)} busy · ${num(m.offline)} offline`
+        : 'No accounts yet. Add one in Accounts');
 
-      const statTasks = document.getElementById('stat-tasks');
-      if (statTasks) {
-        statTasks.textContent = `${status.running_tasks || 0} Running`;
-      }
-      const statTasksSub = document.getElementById('stat-tasks-sub');
-      if (statTasksSub) {
-        statTasksSub.textContent = `${status.ready_tasks || 0} queued · ${status.running_tasks || 0} running · ${status.completed_tasks || 0} done`;
-      }
+      const running = status.running_tasks || 0;
+      const failed = status.failed_tasks || 0;
+      setText('stat-tasks', num(running));
+      setText('stat-tasks-sub', `${num(status.ready_tasks)} waiting · ${num(status.completed_tasks)} done`);
+      setText('stat-failed', num(failed));
+      const failedEl = document.getElementById('stat-failed');
+      if (failedEl) failedEl.classList.toggle('ops-tone-bad', failed > 0);
+      setText('stat-failed-sub', failed ? 'Open Tasks to see what went wrong' : 'Nothing has failed');
+      setText('stat-memory', num(status.memories_count));
+      setText('sidebar-memory-badge', num(status.memories_count));
+      setText('stat-workers', num(status.active_workers ?? mc.active_workers_count));
+      setText('stat-workers-sub', 'Loaded and ready to run');
+      setText('stat-tokens', num(mc.today_tokens ?? status.known_tokens));
+      setText('stat-tokens-sub', `≈ $${Number(mc.today_cost || 0).toFixed(2)} estimated cost`);
 
-      const statTokens = document.getElementById('stat-tokens');
-      if (statTokens) {
-        statTokens.textContent = (mc.today_tokens || status.known_tokens || 0).toLocaleString();
-      }
-      const statTokensSub = document.getElementById('stat-tokens-sub');
-      if (statTokensSub) {
-        statTokensSub.textContent = `verified | $${(mc.today_cost || 0).toFixed(2)} cost`;
-      }
+      // 3. System details row
+      setText('mc-stat-providers', `${num(mc.providers_online)} of ${num(mc.providers_total)}`);
+      setText('mc-stat-accounts', `${num(mc.accounts_healthy)} of ${num(mc.accounts_total)}`);
+      setText('mc-stat-models', num(mc.models_available));
+      setText('mc-stat-active-jobs', num(mc.active_jobs));
+      setText('mc-stat-today-tokens', num(mc.today_tokens));
+      setText('mc-stat-today-cost', `$${Number(mc.today_cost || 0).toFixed(2)}`);
 
-      // 3. Federation Telemetry Row
-      const pEl = document.getElementById('mc-stat-providers');
-      if (pEl) pEl.textContent = `${mc.providers_online || mc.providers_total || 4} / ${mc.providers_total || 4}`;
-      const aEl = document.getElementById('mc-stat-accounts');
-      if (aEl) aEl.textContent = `${mc.accounts_healthy || 18} / ${mc.accounts_total || 18}`;
-      const mEl = document.getElementById('mc-stat-models');
-      if (mEl) mEl.textContent = mc.models_available || 34;
-      const jEl = document.getElementById('mc-stat-active-jobs');
-      if (jEl) jEl.textContent = mc.active_jobs || 0;
-      const tEl = document.getElementById('mc-stat-today-tokens');
-      if (tEl) tEl.textContent = (mc.today_tokens || 0).toLocaleString();
-      const cEl = document.getElementById('mc-stat-today-cost');
-      if (cEl) cEl.textContent = `$${(mc.today_cost || 0).toFixed(2)}`;
+      loadDashboardHandoff();
     }
 
     // Keep the Shared Memory agent filter in step with the live agent registry.
@@ -2510,133 +3398,112 @@
       const desired = JSON.stringify(options);
       if (sel.dataset.rendered === desired) return;   // avoid clobbering an open dropdown
       const previous = sel.value;
-      sel.innerHTML = '<option value="">All Agents</option>'
-        + options.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+      // Account names come from the registry and are untrusted: escape both parts.
+      sel.innerHTML = '<option value="">All agents</option>'
+        + options.map(o => `<option value="${ui.esc(o.value)}">${ui.esc(o.label)}</option>`).join('');
       if (previous && options.some(o => o.value === previous)) sel.value = previous;
       sel.dataset.rendered = desired;
     }
 
     function renderAgents(data) {
-      populateAgentFilter(data);
       const grid = document.getElementById('agents-grid');
-      if (!grid) return;
-      let agents = [];
-      if (Array.isArray(data)) {
-        agents = data;
-      } else if (data && Array.isArray(data.agents)) {
-        agents = data.agents;
-      } else if (data && typeof data === 'object') {
-        for (const p of Object.values(data)) {
-          if (p && p.accounts && typeof p.accounts === 'object') {
-            agents.push(...Object.values(p.accounts));
+      // refreshData passes {} when /api/agents failed: keep the last good list.
+      const failed = !!data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0;
+      if (failed && OPS.agents.length) return;
+      if (data !== null) {
+        if (!failed) populateAgentFilter(data);
+        let agents = [];
+        if (Array.isArray(data)) {
+          agents = data;
+        } else if (data && Array.isArray(data.agents)) {
+          agents = data.agents;
+        } else if (data && typeof data === 'object') {
+          for (const p of Object.values(data)) {
+            if (p && p.accounts && typeof p.accounts === 'object') {
+              agents.push(...Object.values(p.accounts));
+            }
           }
         }
+        OPS.agents = agents;
+      }
+      if (!grid) return;
+      const agents = OPS.agents;
+      const q = (document.getElementById('agents-filter')?.value || '').trim().toLowerCase();
+      const statusOf = (a) => String(a.display_status || a.status || (a.healthy ? 'ONLINE' : 'OFFLINE')).toUpperCase();
+      const shown = q ? agents.filter((a) => [a.agent_id, a.id, a.name, a.provider, a.provider_id, statusOf(a)].join(' ').toLowerCase().includes(q)) : agents;
+
+      const sig = q + '|' + JSON.stringify(shown.map((a) => [a.agent_id || a.id, statusOf(a), a.success_rate, a.avg_latency, a.current_concurrency, a.last_activity, a.current_task && a.current_task.task_id]));
+      if (sig === OPS.agentsSig) return;
+      OPS.agentsSig = sig;
+
+      const summary = document.getElementById('agents-summary');
+      if (summary) {
+        const tally = {};
+        agents.forEach((a) => {
+          const label = (OPS_AGENT_STATUS[statusOf(a)] || [null, statusOf(a).toLowerCase()])[1];
+          tally[label] = (tally[label] || 0) + 1;
+        });
+        summary.innerHTML = agents.length
+          ? `<span><strong>${agents.length}</strong> agent account${agents.length === 1 ? '' : 's'}</span>` + Object.entries(tally).map(([k, v]) => `<span>${ui.esc(k)}: <strong>${v}</strong></span>`).join('')
+          : '';
       }
 
       if (agents.length === 0) {
-        grid.innerHTML = '<div class="p-8 text-[#A1A1AA] font-sans col-span-full modern-card text-center text-sm">No active agent runtimes registered.</div>';
+        ui.empty(grid, { icon: 'fa-robot', title: 'No agents connected yet', hint: 'Add an account from the Accounts tab (press g then c), then refresh this page.' });
+        opsSpan(grid);
+        return;
+      }
+      if (shown.length === 0) {
+        ui.empty(grid, { icon: 'fa-magnifying-glass', title: 'No agents match your filter', hint: 'Try a different name, provider or status.' });
+        opsSpan(grid);
         return;
       }
 
-      grid.innerHTML = agents.map(a => {
+      grid.innerHTML = shown.map((a) => {
         const id = a.agent_id || a.id || 'agent';
+        const name = a.name && a.name !== id ? a.name : id;
         const prov = a.provider || a.provider_id || 'worker';
-        const st = a.display_status || a.status || (a.healthy ? 'ONLINE' : 'OFFLINE');
-        const isOnline = st === 'ONLINE' || st === 'WORKING' || st === 'IDLE';
-        const stColor = isOnline ? 'text-emerald-400' : 'text-[#A1A1AA]';
-        const dotColor = isOnline ? 'bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.7)]' : 'bg-[#71717A]';
-        const models = Array.isArray(a.models) ? a.models.slice(0, 3).join(', ') + (a.models.length > 3 ? ' +' + (a.models.length - 3) : '') : (a.default_model || 'auto');
-        const caps = Array.isArray(a.capabilities) ? a.capabilities.slice(0, 4).join(', ') : '—';
-        const profile = a.profile || a.data_dir || a.config_dir || 'Isolated profile sandbox';
-
-        return `
-          <div class="modern-card p-6 space-y-4 hover:border-[#404040] transition">
-            <div class="flex items-center justify-between border-b border-[#262626] pb-3.5">
-              <div class="flex items-center gap-3">
-                <span class="w-3 h-3 rounded-full ${dotColor}"></span>
-                <span class="font-bold text-white font-mono text-sm">${id}</span>
-                <span class="text-xs px-2.5 py-0.5 rounded-md bg-[#181818] text-[#EDEDED] font-mono border border-[#2E2E2E] uppercase">${prov}</span>
+        const raw = statusOf(a);
+        const [tone, label] = OPS_AGENT_STATUS[raw] || [raw.toLowerCase(), raw.replace(/_/g, ' ').toLowerCase()];
+        const models = Array.isArray(a.models) && a.models.length ? a.models : [a.default_model || 'auto'];
+        const caps = Array.isArray(a.capabilities) ? a.capabilities : [];
+        const chips = (arr, n) => arr.slice(0, n).map((x) => `<span class="ops-chip">${ui.esc(x)}</span>`).join('') + (arr.length > n ? `<span class="ops-chip" title="${ui.esc(arr.slice(n).join(', '))}">+${arr.length - n}</span>` : '');
+        const current = a.current_task;
+        return `<article class="ui-card space-y-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <h3 class="ui-card-title ops-text">${ui.esc(name)}</h3>
+                <div class="ops-meta mt-1"><span class="ops-chip">${ui.esc(prov)}</span>${name !== id ? opsId(id, 24) : ''}</div>
               </div>
-              <span class="text-xs font-mono font-bold ${stColor}">${st}</span>
+              ${ui.badge(tone, label)}
             </div>
-            <div class="text-sm text-[#D4D4D8] space-y-2 font-mono">
-              <div><span class="text-[#A1A1AA]">Profile:</span> <span class="text-indigo-300 truncate">${profile}</span></div>
-              <div><span class="text-[#A1A1AA]">Models:</span> <span class="text-cyan-400">${models}</span></div>
-              <div><span class="text-[#A1A1AA]">Capabilities:</span> <span class="text-[#EDEDED]">${caps}</span></div>
-              <div><span class="text-[#A1A1AA]">Success Rate:</span> <span class="text-emerald-400 font-bold">${a.success_rate != null ? a.success_rate.toFixed(1) + '%' : '100%'}</span> · <span class="text-[#A1A1AA]">Latency:</span> ${a.avg_latency != null ? a.avg_latency.toFixed(2) + 's' : '0.0s'}</div>
+            ${current ? `<p class="text-xs text-[#D4D4D8] ops-text"><span class="ui-muted">Working on:</span> ${ui.esc(opsShort(current.title || current.task_id, 140))}</p>` : ''}
+            <dl class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+              <div><dt class="ui-muted">Success rate</dt><dd class="text-white font-semibold">${a.success_rate != null ? ui.esc(Number(a.success_rate).toFixed(1)) + '%' : '—'}</dd></div>
+              <div><dt class="ui-muted">Avg. time per task</dt><dd class="text-white font-semibold">${a.avg_latency != null ? ui.esc(Number(a.avg_latency).toFixed(2)) + 's' : '—'}</dd></div>
+              <div><dt class="ui-muted">Load</dt><dd class="text-white font-semibold">${ui.esc(a.current_concurrency || 0)} of ${ui.esc(a.concurrency_limit || 2)}</dd></div>
+              <div><dt class="ui-muted">Last active</dt><dd class="text-white">${opsTime(a.last_activity)}</dd></div>
+            </dl>
+            <div><div class="ui-muted text-xs mb-1">Models</div><div class="flex flex-wrap gap-1">${chips(models, 4)}</div></div>
+            ${caps.length ? `<div><div class="ui-muted text-xs mb-1">Good at</div><div class="flex flex-wrap gap-1">${chips(caps, 5)}</div></div>` : ''}
+            <div class="flex justify-end pt-1">
+              <button type="button" class="ui-btn ui-btn-secondary" data-ops-action="agent-ping" data-agent-id="${ui.esc(id)}"><i class="fa-solid fa-heart-pulse" aria-hidden="true"></i> Check health</button>
             </div>
-            <div class="flex items-center justify-between pt-3.5 border-t border-[#262626] text-xs font-mono">
-              <span class="text-[#A1A1AA]">Concurrency: <strong class="text-white">${a.current_concurrency || 0}/${a.concurrency_limit || 2}</strong></span>
-              <button onclick="mcHealthCheck('${id}')" class="px-3.5 py-1.5 bg-sky-950 hover:bg-sky-900 text-sky-300 rounded-md border border-sky-800 transition font-semibold text-xs">Ping Health</button>
-            </div>
-          </div>
-        `;
+          </article>`;
       }).join('');
     }
 
     function renderTasks(data) {
-      const tasks = data.tasks || [];
-      const readyEl = document.getElementById('tasks-ready');
-      const runningEl = document.getElementById('tasks-running');
-      const completedEl = document.getElementById('tasks-completed');
-      const failedEl = document.getElementById('tasks-failed');
-
-      if (!readyEl) return;
-      readyEl.innerHTML = '';
-      runningEl.innerHTML = '';
-      completedEl.innerHTML = '';
-      failedEl.innerHTML = '';
-
-      let cReady = 0, cRunning = 0, cCompleted = 0, cFailed = 0;
-
-      tasks.forEach(t => {
-        const id = t.task_id || t.id || 'task-unknown';
-        const title = t.title || t.instruction || t.prompt || 'Untitled Task';
-        const agent = t.assigned_agent || t.assigned_to || t.worker || 'auto';
-        const status = (t.status || 'READY').toUpperCase();
-
-        const card = document.createElement('div');
-        card.className = 'p-3.5 rounded-lg bg-[#0E0E0E] border border-[#262626] space-y-2 cursor-pointer hover:border-indigo-500 transition-colors shadow-sm';
-        card.onclick = () => openTaskModal(t);
-
-        card.innerHTML = `
-          <div class="flex items-center justify-between text-xs font-mono">
-            <span class="text-indigo-300 font-bold">${id}</span>
-            <span class="text-[#A1A1AA] truncate max-w-[120px]" title="${agent}">${agent}</span>
-          </div>
-          <p class="text-xs text-[#FAFAFA] line-clamp-2 font-sans">${title}</p>
-        `;
-
-        if (status === 'READY' || status === 'QUEUED' || status === 'PENDING' || status === 'BACKLOG') {
-          readyEl.appendChild(card);
-          cReady++;
-        } else if (status === 'RUNNING' || status === 'IN_PROGRESS' || status === 'PLANNING') {
-          runningEl.appendChild(card);
-          cRunning++;
-        } else if (status === 'COMPLETED' || status === 'VERIFICATION_COMPLETE') {
-          completedEl.appendChild(card);
-          cCompleted++;
-        } else {
-          failedEl.appendChild(card);
-          cFailed++;
-        }
-      });
-
-      if (cReady === 0) readyEl.innerHTML = '<div class="p-4 text-center text-xs text-[#71717A] border border-dashed border-[#262626] rounded-lg">No ready tasks</div>';
-      if (cRunning === 0) runningEl.innerHTML = '<div class="p-4 text-center text-xs text-[#71717A] border border-dashed border-[#262626] rounded-lg">No active executions</div>';
-      if (cCompleted === 0) completedEl.innerHTML = '<div class="p-4 text-center text-xs text-[#71717A] border border-dashed border-[#262626] rounded-lg">No completed tasks</div>';
-      if (cFailed === 0) failedEl.innerHTML = '<div class="p-4 text-center text-xs text-[#71717A] border border-dashed border-[#262626] rounded-lg">No failed tasks</div>';
-
-      const badgeReady = document.getElementById('badge-ready');
-      const badgeRunning = document.getElementById('badge-running');
-      const badgeCompleted = document.getElementById('badge-completed');
-      const badgeFailed = document.getElementById('badge-failed');
-      if (badgeReady) badgeReady.textContent = cReady;
-      if (badgeRunning) badgeRunning.textContent = cRunning;
-      if (badgeCompleted) badgeCompleted.textContent = cCompleted;
-      if (badgeFailed) badgeFailed.textContent = cFailed;
-      const sbBadge = document.getElementById('sidebar-tasks-badge');
-      if (sbBadge) sbBadge.textContent = cReady + cRunning;
+      if (!data || !Array.isArray(data.tasks)) {
+        // /api/tasks failed: keep the last good board, or explain on first load.
+        if (!OPS.tasksLoaded) opsTasksError(new Error('Mission Control could not load tasks. It will retry automatically.'));
+        return;
+      }
+      OPS.tasks = data.tasks;
+      OPS.tasksLoaded = true;
+      OPS.tasksById.clear();
+      data.tasks.forEach((t) => OPS.tasksById.set(opsTaskId(t), t));
+      opsRenderTasks();
     }
 
     // Providers
@@ -2814,194 +3681,201 @@
     }
 
     // Events
-    async function loadEvents() {
+    async function loadEvents(opts = {}) {
+      const tbody = document.getElementById('events-tbody');
+      if (!tbody) return;
+      const force = !!(opts && opts.force);
+      // While paused the feed is frozen; the 3s poll must not move it.
+      if (eventStreamPaused && !force && OPS.eventsLoaded) return;
       try {
-        const res = await fetchWithAuth('/api/events');
-        const d = await res.json();
-        const events = d.events || [];
-        const tbody = document.getElementById('events-tbody');
-        if (!tbody) return;
-        if (events.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-[#71717A] font-sans">No events logged yet.</td></tr>';
-          return;
+        const d = await opsJson('/api/events');
+        const events = Array.isArray(d.events) ? d.events : [];
+        if (!OPS.eventsLoaded || force) {
+          OPS.eventsLoaded = true;
+          OPS.eventKeys = new Set();
+          tbody.innerHTML = '';
+          if (!events.length) {
+            tbody.innerHTML = `<tr><td colspan="5">${opsEmptyHtml({ icon: 'fa-wave-square', title: 'No activity yet', hint: 'Events appear here as soon as you dispatch a task or an agent does something.' })}</td></tr>`;
+            opsUpdateEventsCount(0, 0);
+            return;
+          }
         }
-        tbody.innerHTML = events.map(evt => {
-          const eType = evt.event_type || evt.type || '';
-          const timeStr = (evt.timestamp || '').substring(11, 19) || new Date().toISOString().substring(11, 19);
-          return `
-            <tr class="hover:bg-[#202020]/40 transition-colors" data-event-type="${eType}" data-task-id="${evt.task_id || ''}" data-agent="${evt.agent_id || evt.provider || ''}">
-              <td class="py-3 px-4 text-[#A1A1AA]">${timeStr}</td>
-              <td class="py-3 px-4 text-indigo-300 font-semibold">${eType}</td>
-              <td class="py-3 px-4 text-cyan-400">${evt.task_id || '—'}</td>
-              <td class="py-3 px-4 text-[#D4D4D8]">${evt.agent_id || evt.provider || '—'}</td>
-              <td class="py-3 px-4 text-[#A1A1AA] truncate max-w-xs">${JSON.stringify(evt.payload || evt.data || evt.metadata || {})}</td>
-            </tr>
-          `;
-        }).join('');
+        opsPrependEvents(events);
+        filterEventsTable();
       } catch (err) {
-        console.error('loadEvents error:', err);
+        if (!OPS.eventsLoaded || force) {
+          tbody.innerHTML = '<tr><td colspan="5"></td></tr>';
+          ui.error(tbody.querySelector('td'), err, () => loadEvents({ force: true }));
+        }
+        if (force) showToast(`Couldn't load activity: ${err.message}`, 'error');
       }
     }
 
     // Memories
-    async function loadMemories() {
+    async function loadMemories(opts = {}) {
+      const list = document.getElementById('memory-list');
+      if (!list) return;
+      const q = (document.getElementById('mem-filter-search')?.value || '').trim();
+      const scope = document.getElementById('mem-filter-scope')?.value || '';
+      const imp = document.getElementById('mem-filter-imp')?.value || '';
+      const agent = document.getElementById('mem-filter-agent')?.value || '';
+      const params = new URLSearchParams();
+      if (q) params.set('search', q);
+      if (scope) params.set('scope', scope);
+      if (imp) params.set('importance', imp);
+      if (agent) params.set('agent_id', agent);
+      const key = params.toString();
+      const filtering = key !== '';
+      const reset = !!(opts && opts.reset) || key !== OPS.memKey;
+      const seq = ++OPS.memSeq;
+      const countEl = document.getElementById('memory-count');
+      if (!OPS.memLoadedOnce) ui.loading(list, 'Loading memories…');
+      else if (reset) list.style.opacity = '0.6';
       try {
-        const res = await fetchWithAuth('/api/memory');
-        const d = await res.json();
-        const list = document.getElementById('memory-list');
-        if (!list) return;
-        const records = d.records || d.memories || [];
-        if (records.length === 0) {
-          list.innerHTML = '<div class="p-6 text-center text-[#71717A] font-sans modern-card">No memory records stored yet.</div>';
+        const d = await opsJson('/api/memory' + (key ? `?${key}` : ''));
+        if (seq !== OPS.memSeq) return; // a newer search superseded this one
+        OPS.memLoadedOnce = true;
+        OPS.memKey = key;
+        const records = d.memories || d.records || [];
+        const total = d.total ?? records.length;
+        if (countEl) {
+          countEl.innerHTML = filtering
+            ? `<span><strong>${records.length}</strong> of ${ui.esc(total)} memories match</span>`
+            : `<span><strong>${ui.esc(total)}</strong> memories${records.length < total ? ` · showing the latest ${records.length}` : ''}</span>`;
+        }
+        const sig = key + '|' + JSON.stringify(records.map((r) => [r.memory_id || r.id, r.content, r.importance, r.scope, r.created_at, r.tags]));
+        if (sig === OPS.memSig && !reset) return;
+        OPS.memSig = sig;
+        if (!records.length) {
+          ui.empty(list, filtering
+            ? { icon: 'fa-magnifying-glass', title: 'No memories match', hint: 'Try fewer or different words, or use “Clear filters”.' }
+            : { icon: 'fa-brain', title: 'No memories yet', hint: 'Use “Add a memory” above. Agents also save what they learn here as they work.' });
           return;
         }
-        list.innerHTML = records.map(r => `
-          <div class="modern-card p-5 space-y-3 font-mono text-xs">
-            <div class="flex items-center justify-between">
-              <span class="px-2.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800 uppercase font-semibold">${r.scope || 'PROJECT'}</span>
-              <span class="text-amber-400 font-bold">Importance: ${r.importance || 3}/5</span>
-            </div>
-            <p class="text-[#FAFAFA] font-sans text-sm">${r.content || ''}</p>
-            <div class="text-xs font-semibold text-[#71717A] flex justify-between pt-2 border-t border-[#262626]">
-              <span>ID: ${r.id}</span>
-              <span>${r.created_at || ''}</span>
-            </div>
-          </div>
-        `).join('');
+        list.innerHTML = records.map((r) => opsMemoryCard(r, q)).join('');
+        opsMarkOverflow(list);
       } catch (err) {
-        console.error('loadMemories error:', err);
+        if (seq !== OPS.memSeq) return;
+        if (!OPS.memLoadedOnce || reset) {
+          ui.error(list, err, () => loadMemories({ reset: true }));
+          OPS.memSig = '';
+        }
+        if (countEl) countEl.textContent = `Couldn't refresh memories: ${err.message}`;
+      } finally {
+        if (seq === OPS.memSeq) list.style.opacity = '';
       }
     }
 
     async function loadRetrievalHistory() {
+      const list = document.getElementById('memory-retrievals-list');
+      if (!list) return;
+      if (!OPS.retrLoaded) ui.loading(list, 'Loading lookups…');
       try {
-        const res = await fetchWithAuth('/api/memory/retrieval-history');
-        const d = await res.json();
-        const list = document.getElementById('memory-retrievals-list');
-        if (!list) return;
-        const retrievals = d.history || d.retrievals || [];
-        if (retrievals.length === 0) {
-          list.innerHTML = '<div class="p-6 text-center text-[#A1A1AA] font-sans modern-card text-sm">No retrieval operations logged yet.</div>';
+        const d = await opsJson('/api/memory/retrieval-history?limit=100');
+        const rows = d.retrievals || d.history || [];
+        const sig = JSON.stringify(rows.map((r) => [r.retrieval_id, r.created_at]));
+        if (OPS.retrLoaded && sig === OPS.retrSig) return;
+        OPS.retrLoaded = true;
+        OPS.retrSig = sig;
+        if (!rows.length) {
+          ui.empty(list, { icon: 'fa-magnifying-glass', title: 'No lookups yet', hint: 'When an agent searches shared memory while working on a task, the query and best match show up here.' });
           return;
         }
-        list.innerHTML = retrievals.map(ret => {
-          const time = ret.created_at || ret.timestamp || '';
-          const score = ret.retrieval_score != null ? ret.retrieval_score.toFixed(2) : (ret.score != null ? ret.score.toFixed(2) : '—');
-          const memId = ret.retrieved_memory_id || (ret.matched_ids ? ret.matched_ids.join(', ') : '—');
-          const agent = ret.agent_id || 'system';
-
-          return `
-            <div class="modern-card p-5 space-y-3 font-mono text-sm">
-              <div class="flex items-center justify-between">
-                <span class="text-cyan-400 font-bold text-base">Query: "${ret.query || ''}"</span>
-                <span class="text-[#A1A1AA] text-xs">${time}</span>
-              </div>
-              <div class="text-sm text-[#D4D4D8] flex items-center gap-4 flex-wrap">
-                <span>BM25 Score: <strong class="text-emerald-400">${score}</strong></span>
-                <span>Agent: <strong class="text-white">${agent}</strong></span>
-                <span>Matched Memory: <strong class="text-indigo-300">${memId}</strong></span>
-              </div>
-            </div>
-          `;
-        }).join('');
+        list.innerHTML = `<div class="ui-table-wrap"><table class="ui-table">
+            <thead><tr><th>When</th><th>What the agent searched for</th><th>Best match</th><th>Score</th><th>Agent</th><th>Task</th></tr></thead>
+            <tbody>${rows.map((r) => {
+              const score = r.retrieval_score != null ? Number(r.retrieval_score).toFixed(2) : (r.score != null ? Number(r.score).toFixed(2) : '—');
+              const matched = r.retrieved_memory_id || (Array.isArray(r.matched_ids) ? r.matched_ids[0] : '');
+              return `<tr>
+                  <td class="whitespace-nowrap">${opsTime(r.created_at || r.timestamp)}</td>
+                  <td class="ops-text" style="min-width:14rem">${ui.esc(r.query || '')}</td>
+                  <td>${opsId(matched)}</td>
+                  <td class="ui-mono">${ui.esc(score)}</td>
+                  <td class="ui-mono text-xs">${ui.esc(r.agent_id || 'system')}</td>
+                  <td>${opsId(r.task_id)}</td>
+                </tr>`;
+            }).join('')}</tbody></table></div>`;
       } catch (err) {
-        console.error('loadRetrievalHistory error:', err);
+        if (!OPS.retrLoaded) ui.error(list, err, () => loadRetrievalHistory());
       }
     }
 
     function toggleMemoryView(view) {
-      const v1 = document.getElementById('memory-records-view');
-      const v2 = document.getElementById('memory-retrievals-view');
-      const b1 = document.getElementById('mem-view-records-btn');
-      const b2 = document.getElementById('mem-view-retrievals-btn');
-
-      if (view === 'records') {
-        v1.classList.remove('hidden');
-        v2.classList.add('hidden');
-        b1.className = 'px-4 py-2 bg-purple-700 text-white rounded-lg text-xs font-semibold shadow-sm';
-        b2.className = 'px-4 py-2 bg-[#141414] text-[#D4D4D8] hover:bg-[#202020] border border-[#262626] rounded-lg text-xs font-semibold';
-        loadMemories();
-      } else {
-        v1.classList.add('hidden');
-        v2.classList.remove('hidden');
-        b2.className = 'px-4 py-2 bg-purple-700 text-white rounded-lg text-xs font-semibold shadow-sm';
-        b1.className = 'px-4 py-2 bg-[#141414] text-[#D4D4D8] hover:bg-[#202020] border border-[#262626] rounded-lg text-xs font-semibold';
-        loadRetrievalHistory();
-      }
+      const views = {
+        records: ['memory-records-view', 'mem-view-records-btn'],
+        retrievals: ['memory-retrievals-view', 'mem-view-retrievals-btn'],
+        handoffs: ['memory-handoffs-view', 'mem-view-handoffs-btn'],
+      };
+      const active = views[view] ? view : 'records';
+      Object.entries(views).forEach(([name, [viewId, btnId]]) => {
+        const v = document.getElementById(viewId);
+        const b = document.getElementById(btnId);
+        if (v) v.classList.toggle('hidden', name !== active);
+        if (b) b.setAttribute('aria-pressed', String(name === active));
+      });
+      if (active === 'records') loadMemories();
+      else if (active === 'retrievals') loadRetrievalHistory();
+      else loadHandoffs();
     }
 
     async function loadHandoffs() {
+      const hCard = document.getElementById('handoff-card');
+      const hContent = document.getElementById('handoff-content');
+      const hList = document.getElementById('handoff-history-list');
       try {
-        const resHandoff = await fetchWithAuth('/api/handoff');
-        const handoffData = await resHandoff.json();
-        const hCard = document.getElementById('handoff-card');
-        if (hCard && handoffData.record) {
-          const hr = handoffData.record;
-          hCard.innerHTML = `
-            <div class="flex items-center justify-between border-b border-[#262626] pb-2">
-              <div><span class="text-[#A1A1AA]">Flow:</span> <span class="text-emerald-400 font-mono">${hr.source_agent || hr.agent_id}</span> → <span class="text-cyan-400 font-mono">${hr.recommended_agent || 'Next Agent'}</span></div>
-              <div class="font-mono text-xs text-[#71717A]">${hr.created_at || ''}</div>
-            </div>
-            <div><span class="text-[#A1A1AA] font-semibold">Objective:</span> <span class="text-[#EDEDED]">${hr.objective || hr.task}</span></div>
-            ${hr.next_action ? `<div><span class="text-amber-400 font-semibold">Next Action:</span> <span class="text-[#D4D4D8]">${hr.next_action}</span></div>` : ''}
-          `;
-          hCard.classList.remove('hidden');
-        } else if (hCard) {
-          hCard.classList.add('hidden');
-        }
-        const hContent = document.getElementById('handoff-content');
-        if (hContent) hContent.innerHTML = marked.parse(handoffData.markdown || 'No active handoff record.');
-
-        const resHist = await fetchWithAuth('/api/handoff/history');
-        const histData = await resHist.json();
-        const hList = document.getElementById('handoff-history-list');
-        if (hList && histData.history) {
-          hList.innerHTML = '';
-          if (histData.history.length === 0) {
-            hList.innerHTML = `<div class="p-3 bg-[#121212] border border-[#262626] rounded text-xs text-[#71717A]">No previous handoffs recorded.</div>`;
-          } else {
-            for (const item of histData.history) {
-              const hItem = document.createElement('div');
-              hItem.className = 'p-3 bg-[#121212] border border-[#262626] rounded text-xs space-y-1.5 hover:border-cyan-800/80 cursor-pointer transition';
-              hItem.onclick = () => loadHistoricalHandoff(item.filename, item.source_agent, item.recommended_agent);
-              hItem.innerHTML = `
-                <div class="flex justify-between items-center text-xs font-mono text-[#A1A1AA]">
-                  <span class="text-emerald-400 font-bold">${item.source_agent || 'agent'} → ${item.recommended_agent || 'next'}</span>
-                  <span class="text-[#71717A]">${(item.created_at || '').split('T')[0] || ''}</span>
-                </div>
-                <div class="text-[#EDEDED] font-sans text-xs truncate">${item.objective || item.task_id || item.filename}</div>
-                <div class="text-xs text-cyan-400 font-mono">View Full Handoff →</div>
-              `;
-              hList.appendChild(hItem);
-            }
-          }
+        const handoffData = await opsJson('/api/handoff');
+        if (hCard) hCard.innerHTML = opsHandoffDetail(handoffData.record, { markdown: handoffData.markdown });
+        if (hContent) hContent.innerHTML = opsSafeMarkdown(handoffData.markdown || 'No active handoff record.');
+        const dash = document.getElementById('dash-handoff');
+        if (dash) {
+          dash.innerHTML = opsHandoffHero(handoffData);
+          OPS.handoffFetchedAt = Date.now();
         }
       } catch (err) {
-        console.error('Error loading handoffs:', err);
+        if (hCard) ui.error(hCard, err, () => loadHandoffs());
+      }
+
+      if (!hList) return;
+      try {
+        if (!hList.children.length) ui.loading(hList, 'Loading previous handoffs…');
+        const histData = await opsJson('/api/handoff/history');
+        const items = Array.isArray(histData.history) ? histData.history : [];
+        if (!items.length) {
+          ui.empty(hList, { icon: 'fa-clock-rotate-left', title: 'No previous handoffs', hint: 'Each time an agent writes a new handoff, the old one is archived here.' });
+          return;
+        }
+        hList.innerHTML = items.map((item) => `
+          <div class="ops-task-card" role="button" tabindex="0" data-ops-action="handoff-open" data-filename="${ui.esc(item.filename || '')}" title="Show this handoff">
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span class="ui-muted ops-text">${ui.esc(item.agent_id || item.source_agent || 'agent')} → ${ui.esc(item.recommended_agent || 'next agent')}</span>
+              <span class="flex items-center gap-2">${item.is_current ? ui.badge('active', 'Current') : ''}${opsTime(item.created_at)}</span>
+            </div>
+            <div class="ops-task-title" style="margin-bottom:0">${ui.esc(item.objective || item.task || item.task_id || item.filename || 'Handoff')}</div>
+          </div>`).join('');
+      } catch (err) {
+        ui.error(hList, err, () => loadHandoffs());
       }
     }
 
     async function loadHistoricalHandoff(filename, src, dst) {
+      if (!filename) return;
       try {
-        const res = await fetchWithAuth('/api/handoff/record?name=' + encodeURIComponent(filename));
-        const data = await res.json();
-        if (data.record) {
-          const hCard = document.getElementById('handoff-card');
-          if (hCard) {
-            hCard.innerHTML = `
-              <div class="flex items-center justify-between border-b border-[#262626] pb-2">
-                <div><span class="text-[#A1A1AA]">Historical Record:</span> <span class="text-cyan-400 font-mono">${filename}</span></div>
-                <div class="font-mono text-xs text-[#71717A]">${data.record.created_at || ''}</div>
-              </div>
-              <div><span class="text-[#A1A1AA] font-semibold">Objective:</span> <span class="text-[#EDEDED]">${data.record.objective || data.record.task}</span></div>
-              ${data.record.next_action ? `<div><span class="text-amber-400 font-semibold">Next Action:</span> <span class="text-[#D4D4D8]">${data.record.next_action}</span></div>` : ''}
-            `;
-            hCard.classList.remove('hidden');
-          }
-          const hContent = document.getElementById('handoff-content');
-          if (hContent) hContent.innerHTML = marked.parse(data.record.raw_markdown || data.markdown || JSON.stringify(data.record, null, 2));
-          showToast('Loaded historical handoff: ' + filename, 'info');
+        // The endpoint has read ?filename= (older builds ignored ?name= and always
+        // returned the current handoff); send both so either server version works.
+        const data = await opsJson('/api/handoff/record?filename=' + encodeURIComponent(filename) + '&name=' + encodeURIComponent(filename));
+        if (!data.record) {
+          showToast(`Handoff ${filename} was not found`, 'warning');
+          return;
         }
+        const hCard = document.getElementById('handoff-card');
+        if (hCard) hCard.innerHTML = opsHandoffDetail(data.record, { historical: filename !== 'current.json', filename });
+        const hContent = document.getElementById('handoff-content');
+        if (hContent) {
+          const md = data.record.raw_markdown || data.markdown;
+          hContent.innerHTML = md ? opsSafeMarkdown(md) : `<pre class="ops-pre text-xs">${ui.esc(JSON.stringify(data.record, null, 2))}</pre>`;
+        }
+        if (hCard) hCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        showToast('Showing handoff ' + filename, 'info');
       } catch (err) {
         showToast('Error loading handoff: ' + err.message, 'error');
       }
@@ -3122,62 +3996,77 @@
     async function dispatchTask(autoExecute = true) {
       const input = document.getElementById('quick-instruction');
       const agentSel = document.getElementById('quick-agent');
-      if (!input || !input.value.trim()) {
+      const instruction = input ? input.value.trim() : '';
+      if (!instruction) {
+        opsFieldError('quick-instruction', 'Describe the task first, for example “Add tests for the login form”.');
         showToast('Please enter a task instruction', 'warning');
         return;
       }
-      const instruction = input.value.trim();
+      if (instruction.length < 4) {
+        opsFieldError('quick-instruction', 'That is a bit short. Say what should be done.');
+        return;
+      }
+      const btn = document.getElementById(autoExecute ? 'quick-dispatch-run' : 'quick-dispatch-queue');
+      const other = document.getElementById(autoExecute ? 'quick-dispatch-queue' : 'quick-dispatch-run');
+      if ((btn && btn.disabled) || (other && other.disabled)) return; // already sending
       const targetAgent = agentSel ? agentSel.value : '';
-
+      if (other) other.disabled = true;
       try {
-        const res = await fetchWithAuth('/api/dispatch', {
-          method: 'POST',
-          body: { instruction, agent: targetAgent, target_agent: targetAgent, auto_execute: autoExecute }
+        await opsBusy(btn, async () => {
+          try {
+            const d = await opsJson('/api/dispatch', {
+              method: 'POST',
+              body: { instruction, agent: targetAgent, target_agent: targetAgent, auto_execute: autoExecute }
+            });
+            showToast(autoExecute
+              ? `Task ${d.task_id || ''} dispatched and starting`
+              : `Task ${d.task_id || ''} queued. Start it from Tasks when you are ready`, 'success');
+            if (input) input.value = '';
+            opsClearFieldError('quick-instruction');
+            debouncedRefreshData(50);
+          } catch (err) {
+            showToast(`Dispatch failed: ${err.message}`, 'error');
+          }
         });
-        const d = await res.json();
-        if (res.ok) {
-          showToast(`Task dispatched: ${d.task_id || 'OK'}`, 'success');
-          input.value = '';
-          debouncedRefreshData(50);
-        } else {
-          showToast(`Dispatch failed: ${d.error || d.message}`, 'error');
-        }
-      } catch (err) {
-        showToast(`Network error: ${err.message}`, 'error');
+      } finally {
+        if (other) other.disabled = false;
       }
     }
 
-    async function executeSingleTask(taskId) {
-      try {
-        const res = await fetchWithAuth('/api/execute', {
-          method: 'POST',
-          body: { task_id: taskId }
-        });
-        if (res.ok) {
-          showToast(`Executing task ${taskId}`, 'success');
+    async function executeSingleTask(taskId, btn) {
+      await opsBusy(btn, async () => {
+        try {
+          await opsJson('/api/execute', {
+            method: 'POST',
+            body: { task_id: taskId }
+          });
+          showToast(`Starting task ${taskId}`, 'success');
           closeTaskModal();
           debouncedRefreshData(50);
-        } else {
-          showToast(`Execution failed`, 'error');
+        } catch (err) {
+          showToast(`Couldn't start the task: ${err.message}`, 'error');
         }
-      } catch (err) {
-        showToast(`Network error: ${err.message}`, 'error');
-      }
+      });
     }
 
-    async function cancelTask(taskId) {
-      try {
-        const res = await fetchWithAuth('/api/task/cancel', {
-          method: 'POST',
-          body: { task_id: taskId }
-        });
-        if (res.ok) {
+    async function cancelTask(taskId, btn) {
+      if (!taskId) return;
+      const t = OPS.tasksById.get(taskId);
+      const label = t ? `“${opsShort(opsTaskTitle(t), 80)}”` : taskId;
+      if (!window.confirm(`Cancel task ${label}?\n\nThe agent stops and the task is marked as cancelled. This cannot be undone.`)) return;
+      await opsBusy(btn, async () => {
+        try {
+          await opsJson('/api/task/cancel', {
+            method: 'POST',
+            body: { task_id: taskId }
+          });
           showToast(`Task ${taskId} cancelled`, 'info');
+          if (OPS.modalTaskId === taskId) closeTaskModal();
           refreshData();
+        } catch (err) {
+          showToast(`Couldn't cancel the task: ${err.message}`, 'error');
         }
-      } catch (err) {
-        showToast(`Network error: ${err.message}`, 'error');
-      }
+      });
     }
 
     async function cancelMissionControlJob(jobId) {
@@ -3212,25 +4101,39 @@
       const contentEl = document.getElementById('mem-add-content');
       const scopeEl = document.getElementById('mem-add-scope');
       const impEl = document.getElementById('mem-add-imp');
-      if (!contentEl || !contentEl.value.trim()) return;
-
-      try {
-        const res = await fetchWithAuth('/api/memory/add', {
-          method: 'POST',
-          body: {
-            content: contentEl.value.trim(),
-            scope: scopeEl ? scopeEl.value : 'project',
-            importance: impEl ? parseInt(impEl.value, 10) : 3,
-          }
-        });
-        if (res.ok) {
-          showToast('Memory record saved', 'success');
-          contentEl.value = '';
-          loadMemories();
-        }
-      } catch (err) {
-        showToast(`Error: ${err.message}`, 'error');
+      if (!contentEl) return;
+      const content = contentEl.value.trim();
+      if (!content) {
+        opsFieldError('mem-add-content', 'Write the memory first. One clear sentence works best.');
+        return;
       }
+      if (content.length > 4000) {
+        opsFieldError('mem-add-content', `That is ${content.length} characters; the limit is 4000. Split it into smaller memories.`);
+        return;
+      }
+      if (opsLooksLikeSecret(content) && !window.confirm('This looks like it may contain a secret (a key, token or password). Every agent can read memories. Save it anyway?')) {
+        return;
+      }
+      await opsBusy('mem-add-btn', async () => {
+        try {
+          await opsJson('/api/memory/add', {
+            method: 'POST',
+            body: {
+              content,
+              scope: scopeEl ? scopeEl.value : 'project',
+              importance: impEl ? parseInt(impEl.value, 10) : 3,
+            }
+          });
+          showToast('Memory saved. Every agent can now recall it', 'success');
+          contentEl.value = '';
+          opsClearFieldError('mem-add-content');
+          opsUpdateMemoryCounter();
+          loadMemories({ reset: true });
+        } catch (err) {
+          opsFieldError('mem-add-content', `Couldn't save: ${err.message}`);
+          showToast(`Couldn't save the memory: ${err.message}`, 'error');
+        }
+      });
     }
 
     async function deleteQuota(scope, targetId) {
@@ -5391,47 +6294,62 @@
 
     function openTaskModal(t) {
       const modal = document.getElementById('task-modal');
-      const title = document.getElementById('task-modal-title');
-      const body = document.getElementById('task-modal-body');
-      const id = t.task_id || t.id || 'task-unknown';
+      if (!modal || !t) return;
+      const id = opsTaskId(t);
+      OPS.tasksById.set(id, t);
+      OPS.modalTaskId = id;
       const prompt = t.title || t.instruction || t.prompt || 'No instruction recorded.';
-      const agent = t.assigned_agent || t.assigned_to || t.worker || 'Auto';
+      const agent = opsTaskAgent(t);
       const status = (t.status || 'READY').toUpperCase();
       let outputStr = 'No output recorded yet.';
       if (typeof t.result === 'string' && t.result.trim()) {
         outputStr = t.result;
       } else if (t.result && t.result.response) {
-        outputStr = t.result.response;
+        outputStr = typeof t.result.response === 'string' ? t.result.response : JSON.stringify(t.result.response, null, 2);
       } else if (t.output) {
         outputStr = typeof t.output === 'string' ? t.output : JSON.stringify(t.output, null, 2);
       } else if (t.result && Object.keys(t.result).length > 0) {
         outputStr = JSON.stringify(t.result, null, 2);
       }
-
       const errors = t.errors || (t.result && t.result.errors) || null;
-      let errorHtml = '';
-      if (errors && (Array.isArray(errors) ? errors.length > 0 : Boolean(errors))) {
-        const errorText = Array.isArray(errors) ? errors.join('\n') : (typeof errors === 'object' ? JSON.stringify(errors, null, 2) : String(errors));
-        errorHtml = `
-          <div class="p-3 bg-rose-950/40 border border-rose-800/60 rounded-lg text-rose-300 text-xs">
-            <div class="font-bold flex items-center gap-2 mb-1">
-              <i class="fa-solid fa-triangle-exclamation text-rose-400"></i> Execution Error / Root Cause:
-            </div>
-            <pre class="whitespace-pre-wrap font-mono text-[11px] text-rose-200 mt-1">${escapeHtml(errorText)}</pre>
-          </div>
-        `;
-      }
+      const hasErrors = !!(errors && (Array.isArray(errors) ? errors.length > 0 : Boolean(errors)));
+      const errorText = !hasErrors ? '' : (Array.isArray(errors) ? errors.join('\n') : (typeof errors === 'object' ? JSON.stringify(errors, null, 2) : String(errors)));
 
-      if (title) title.textContent = `Task ${id} — ${status}`;
+      // Every value below is untrusted task data: textContent or ui.esc only.
+      const setText = (elId, v) => { const el = document.getElementById(elId); if (el) el.textContent = v; };
+      setText('modal-task-title', 'Task details');
+      setText('task-modal-title', `Task ${id} — ${status}`);
+      const st = document.getElementById('modal-task-status');
+      if (st) {
+        st.className = '';
+        st.innerHTML = ui.badge(status.toLowerCase());
+      }
+      setText('modal-task-agent', agent);
+      setText('modal-task-subtasks', Array.isArray(t.subtasks) ? t.subtasks.length : (Array.isArray(t.dependencies) ? t.dependencies.length : 0));
+      setText('modal-task-retries', t.retries ?? t.retry_count ?? t.continuation_depth ?? 0);
+      setText('modal-task-input', prompt);
+      setText('modal-task-output', outputStr);
+      setText('modal-task-error', errorText);
+      const errBox = document.getElementById('modal-task-error-container');
+      if (errBox) errBox.classList.toggle('hidden', !hasErrors);
+
+      const body = document.getElementById('task-modal-body');
       if (body) {
+        const canRun = opsTaskBucket(status) === 'ready';
+        const canCancel = OPS_CANCELLABLE.includes(status);
         body.innerHTML = `
-          <div><b>Instruction:</b> <p class="text-[#FAFAFA] mt-1 font-sans text-sm">${escapeHtml(prompt)}</p></div>
-          <div><b>Assigned Worker:</b> <span class="text-cyan-400 font-bold font-mono">${escapeHtml(agent)}</span></div>
-          ${errorHtml}
-          <div><b>Output / Result:</b> <pre class="p-4 bg-[#0E0E0E] rounded-lg border border-[#262626] mt-1.5 overflow-x-auto whitespace-pre-wrap text-xs text-zinc-300 font-mono">${escapeHtml(outputStr)}</pre></div>
-          <div class="flex justify-end gap-3 pt-3">
-            ${(status === 'READY' || status === 'PENDING') ? `<button onclick="executeSingleTask('${id}')" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold">Execute Now</button>` : ''}
-            ${(status === 'RUNNING' || status === 'IN_PROGRESS') ? `<button onclick="cancelTask('${id}')" class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold">Cancel Task</button>` : ''}
+          <div class="ops-meta">
+            <span>ID ${opsId(id, 32)}</span>
+            <span>Created ${opsTime(t.created_at)}</span>
+            ${t.completed_at ? `<span>Finished ${opsTime(t.completed_at)}</span>` : ''}
+            <span>Model <strong>${ui.esc(t.actual_model || t.assigned_model || t.requested_model || 'auto')}</strong></span>
+            ${t.requires_approval ? ui.badge('pending_approval', 'Needs approval') : ''}
+          </div>
+          ${t.approval_reason ? `<p class="ui-help ops-text">Why approval is needed: ${ui.esc(t.approval_reason)}</p>` : ''}
+          ${t.terminal_reason ? `<p class="ui-help ops-text">Stopped because: ${ui.esc(t.terminal_reason)}</p>` : ''}
+          <div class="flex flex-wrap justify-end gap-2 pt-2">
+            ${canRun ? `<button type="button" class="ui-btn ui-btn-primary" data-ops-action="task-run" data-task-id="${ui.esc(id)}"><i class="fa-solid fa-play" aria-hidden="true"></i> Run now</button>` : ''}
+            ${canCancel ? `<button type="button" class="ui-btn ui-btn-danger" data-ops-action="task-cancel" data-task-id="${ui.esc(id)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel task</button>` : ''}
           </div>
         `;
       }
