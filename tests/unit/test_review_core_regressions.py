@@ -409,7 +409,12 @@ class PlannerNoAgentRegressions(unittest.TestCase):
 
 class AuditPathRegressions(unittest.TestCase):
     def test_default_audit_path_is_repo_anchored_not_cwd_relative(self):
-        from brain.governance.audit_logger import AuditLogger
+        from brain.governance.audit_logger import DEFAULT_AUDIT_LOG_PATH, AuditLogger
+
+        # The module default is what production uses. The test harness
+        # (tests/support/hermetic.py) redirects AuditLogger() instances into a
+        # per-run temp dir, so assert the constant rather than an instance.
+        self.assertEqual(DEFAULT_AUDIT_LOG_PATH, PROJECT_ROOT / "runtime" / "audit" / "audit.jsonl")
 
         with tempfile.TemporaryDirectory() as tmp:
             prev = os.getcwd()
@@ -419,7 +424,7 @@ class AuditPathRegressions(unittest.TestCase):
             finally:
                 os.chdir(prev)
             self.assertTrue(logger.log_path.is_absolute())
-            self.assertEqual(logger.log_path, PROJECT_ROOT / "runtime" / "audit" / "audit.jsonl")
+            self.assertFalse(logger.log_path.is_relative_to(Path(tmp).resolve()))
             self.assertFalse((Path(tmp) / "runtime").exists())
 
     def test_validate_scans_the_ledger_audit_logger_writes(self):

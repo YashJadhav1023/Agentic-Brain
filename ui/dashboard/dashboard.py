@@ -3923,7 +3923,16 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                         requires_streaming=streaming,
                     )
                     prov = decision.provider_id or decision.agent_id
-                    acct = decision.account_id
+                    # The decision's account_id is the adapter's short name
+                    # ("account-3"); the account registry is keyed by agent id
+                    # ("antigravity-account-3"). Hand JobManager a registry key.
+                    acct = next(
+                        (
+                            cand for cand in (decision.agent_id, decision.account_id)
+                            if cand and job_manager.accounts.get_account(cand) is not None
+                        ),
+                        decision.account_id,
+                    )
                     mdl = decision.model
                 except Exception as r_err:
                     self._serve_json({"error": f"SmartRouter failed: {r_err}"}, status=503)

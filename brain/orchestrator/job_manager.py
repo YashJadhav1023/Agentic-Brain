@@ -426,7 +426,7 @@ class JobManager:
                     failovers=len(job.metadata.get("failover_history", [])),
                 )
             except Exception:
-                pass
+                logger.warning("Failed to record usage for job %s", job.id, exc_info=True)
 
             return result
         finally:
@@ -465,7 +465,7 @@ class JobManager:
                 failovers=len(job.metadata.get("failover_history", [])),
             )
         except Exception:
-            pass
+            logger.warning("Failed to record usage for job %s", job.id, exc_info=True)
 
         if not res.success:
             raise RuntimeError(res.error or f"Agent {adapter.agent_id} invocation failed.")

@@ -121,7 +121,7 @@ class UsageTracker:
 
     def record_usage(
         self,
-        job_id_or_record: UsageRecord | str,
+        job_id_or_record: UsageRecord | str | None = None,
         provider_id: str = "",
         account_id: str = "",
         model_id: str = "",
@@ -136,6 +136,11 @@ class UsageTracker:
         **kwargs: Any,
     ) -> UsageRecord:
         """Record usage and compute cost if known."""
+        # Callers pass the id as `job_id=`; accept it as an alias.
+        if job_id_or_record is None:
+            job_id_or_record = kwargs.pop("job_id", None)
+        if job_id_or_record is None:
+            raise TypeError("record_usage() requires a UsageRecord or a job id")
         if isinstance(job_id_or_record, UsageRecord):
             rec = job_id_or_record
         else:
