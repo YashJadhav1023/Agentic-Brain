@@ -200,9 +200,14 @@ class Planner:
                 step.status = StepStatus.RUNNING
                 t0 = time.time()
 
-                # Register rollback if step has one
-                if step.rollback_action:
-                    rollback_mgr.register_rollback(step.step_id, step.rollback_action)
+                # Rollbacks are deliberately NOT registered here. Steps in this
+                # path are simulated (nothing is executed), so there is nothing to
+                # compensate, while running a step's rollback_action (the decomposer
+                # emits "git checkout .") would discard the user's uncommitted work
+                # in the process CWD. A failed verification on a simulated step --
+                # e.g. a task title containing "fatal:" tripping "no_errors" --
+                # must never do that. Real rollbacks are applied by
+                # ExecutionFabric.execute_step, which actually runs step.command.
 
                 # Simulated safe step execution (or dispatch to agent)
                 # In Phase 18, steps complete with simulated execution and verification

@@ -7,12 +7,33 @@ from __future__ import annotations
 
 import datetime
 import json
+import tempfile
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 import os
 from pathlib import Path
 from typing import Any
+
+
+def _write_text_atomic(target: Path, content: str) -> None:
+    """Write via a unique temp file in the same directory, then os.replace.
+
+    Readers (dashboard polling, other workers) never observe a truncated file,
+    and a failed write leaves the previous record intact.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        os.replace(tmp_name, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def _brain_dir() -> Path:
@@ -154,6 +175,9 @@ class TaskManager:
 
         for d in (self._dir_queue, self._dir_active, self._dir_completed, self._dir_failed):
             d.mkdir(parents=True, exist_ok=True)
+        # Serialises read-modify-write in update_status and the move in save_task
+        # so concurrent workers in this process cannot lose each other's updates.
+        self._lock = threading.RLock()
 
     def _dir_for_status(self, status: TaskStatus) -> Path:
         if status in (TaskStatus.READY, TaskStatus.BACKLOG):
@@ -220,15 +244,18 @@ class TaskManager:
     def save_task(self, task: Task) -> Path:
         target_dir = self._dir_for_status(task.status)
         target_file = target_dir / f"{task.task_id}.json"
+        payload = json.dumps(task.to_dict(), indent=2)
 
-        # Remove from other directories if moving
-        for d in (self._dir_queue, self._dir_active, self._dir_completed, self._dir_failed):
-            if d != target_dir:
-                old_file = d / f"{task.task_id}.json"
-                if old_file.exists():
-                    old_file.unlink(missing_ok=True)
+        with self._lock:
+            # Write the new record first, atomically. Deleting the old copy first
+            # (as before) meant a failed or interrupted write lost the task
+            # entirely, and a concurrent reader could see a half-written file.
+            _write_text_atomic(target_file, payload)
 
-        target_file.write_text(json.dumps(task.to_dict(), indent=2), encoding="utf-8")
+            # Then remove stale copies from the other directories.
+            for d in (self._dir_queue, self._dir_active, self._dir_completed, self._dir_failed):
+                if d != target_dir:
+                    (d / f"{task.task_id}.json").unlink(missing_ok=True)
         return target_file
 
     def get_task(self, task_id: str) -> Task | None:
@@ -283,6 +310,40 @@ class TaskManager:
         return None
 
     def update_status(
+        self,
+        task_id: str,
+        status: TaskStatus,
+        result: dict[str, Any] | None = None,
+        error: str | None = None,
+        actual_model: str | None = None,
+        requested_model: str | None = None,
+        session_id: str | None = None,
+        conversation_id: str | None = None,
+        duration_seconds: float | None = None,
+        handoff: str | None = None,
+        memory_refs: list[str] | None = None,
+        is_terminal: bool | None = None,
+        terminal_reason: str | None = None,
+        task_type: str | None = None,
+        continuation_depth: int | None = None,
+        verification_depth: int | None = None,
+        continuation_budget: int | None = None,
+        verification_for: str | None = None,
+        stage: str | None = None,
+    ) -> Task | None:
+        with self._lock:
+            return self._update_status_locked(
+                task_id, status, result=result, error=error, actual_model=actual_model,
+                requested_model=requested_model, session_id=session_id,
+                conversation_id=conversation_id, duration_seconds=duration_seconds,
+                handoff=handoff, memory_refs=memory_refs, is_terminal=is_terminal,
+                terminal_reason=terminal_reason, task_type=task_type,
+                continuation_depth=continuation_depth, verification_depth=verification_depth,
+                continuation_budget=continuation_budget, verification_for=verification_for,
+                stage=stage,
+            )
+
+    def _update_status_locked(
         self,
         task_id: str,
         status: TaskStatus,

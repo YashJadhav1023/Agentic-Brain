@@ -19,6 +19,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -1733,25 +1734,12 @@ def cmd_resources(args: argparse.Namespace) -> None:
             if len(resources) > 35:
                 print(f"... and {len(resources) - 35} more resources.")
         return
-        data = graph.to_graph_data()
-        if getattr(args, "json", False):
-            print(json.dumps(data, indent=2))
-        else:
-            print(f"\n=== Universal Resource Graph ===")
-            print(f"Total Nodes : {data['node_count']}")
-            print(f"Total Edges : {data['edge_count']}")
-            # Group by node type
-            by_type = {}
-            for n in graph.list_nodes():
-                t_val = n.type.value if hasattr(n.type, "value") else str(n.type)
-                by_type[t_val] = by_type.get(t_val, 0) + 1
-            print("\nNode Counts by Resource Type:")
-            for t, cnt in sorted(by_type.items()):
-                print(f"  - {t:<15}: {cnt}")
 
-    elif action == "search":
+    if action == "search":
         q = getattr(args, "query", "")
-        nodes = graph.find_nodes_by_tag(q)
+        tag = q.lower().strip()
+        # Match on tags, as the subcommand help promises ("Find resource nodes by tag").
+        nodes = [r for r in reg.list() if tag in [t.lower() for t in r.tags]]
         if getattr(args, "json", False):
             print(json.dumps([n.to_dict() for n in nodes], indent=2))
         else:
@@ -1760,7 +1748,7 @@ def cmd_resources(args: argparse.Namespace) -> None:
             print("-" * 88)
             for n in nodes[:20]:
                 t_val = n.type.value if hasattr(n.type, "value") else str(n.type)
-                lbl = n.label if len(n.label) <= 33 else n.label[:30] + "..."
+                lbl = n.name if len(n.name) <= 33 else n.name[:30] + "..."
                 print(f"{t_val:<15} {n.id:<35} {lbl:<35}")
 
 

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -130,7 +132,17 @@ class JobManager:
             return
         try:
             target = self._storage_dir / f"{job.id}.json"
-            target.write_text(json.dumps(job.to_dict(), indent=2), encoding="utf-8")
+            # Atomic replace: a concurrent reader or a crash mid-write must never
+            # leave a truncated job file, which _load_persisted_jobs would then
+            # silently drop on the next start.
+            fd, tmp_name = tempfile.mkstemp(dir=str(self._storage_dir), prefix=f".{job.id}.", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(json.dumps(job.to_dict(), indent=2))
+                os.replace(tmp_name, target)
+            except BaseException:
+                Path(tmp_name).unlink(missing_ok=True)
+                raise
         except Exception as exc:
             logger.warning(f"Failed to persist job {job.id}: {exc}")
 
@@ -315,7 +327,7 @@ class JobManager:
         account_id: str,
         model: str,
         worker: str | None,
-    ) -> ExecutionResult:
+    ) -> TaskExecutionResult:
         """Attempt single execution against an AIProvider or AgentAdapter."""
         ai_provider = self.registry.get_ai_provider(provider_id)
         if ai_provider:

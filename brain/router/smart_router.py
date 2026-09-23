@@ -647,6 +647,10 @@ class SmartRouter:
                 mode_enum = RoutingMode.BALANCED
         else:
             mode_enum = routing_mode
+        # Use the normalised enum from here on; a raw "COST"/"Performance" string
+        # would otherwise compare unequal to every RoutingMode and silently score
+        # as BALANCED.
+        routing_mode = mode_enum
 
         pref_agent = preferred_agent or preferred_account
         classification = self.classify_task(task_text)
