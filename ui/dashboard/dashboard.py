@@ -3316,6 +3316,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             return
 
         elif path == "/api/context/preview":
+            # The preview includes retrieved memory contents; require a session.
+            if not self._verify_auth(path):
+                return
             task = payload.get("task", "") or payload.get("instruction", "")
             from brain.context.context_builder import ContextBuilder
             builder = ContextBuilder()
@@ -3334,6 +3337,8 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             "/api/task/cancel",
             "/api/tasks/reconcile",
             "/api/memory/add",
+            # Returns stored memory contents, so it needs a session like GET /api/memory.
+            "/api/memory/search",
             "/api/worktrees/apply",
             "/api/worktrees/approve",
             "/api/worktrees/reject",

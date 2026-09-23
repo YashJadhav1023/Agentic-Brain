@@ -543,3 +543,17 @@ class TestExecuteRunsTheRequestedTask(_ServerMixin, unittest.TestCase):
         self.assertEqual(status, 200)
         self._wait(started)
         self.assertEqual(started, ["NEXT"])
+
+
+class TestMemoryReadEndpointsRequireAuth(_ServerMixin, unittest.TestCase):
+    """POST endpoints that return memory contents must not be readable without a session."""
+
+    def test_memory_search_and_context_preview_need_a_token(self):
+        for path, body in (("/api/memory/search", {"query": "q"}),
+                           ("/api/context/preview", {"instruction": "q"})):
+            status, _ = _post_json(self, path, body, auth=False)
+            self.assertEqual(status, 401, path)
+
+    def test_memory_search_works_with_a_token(self):
+        status, body = _post_json(self, "/api/memory/search", {"query": "q"})
+        self.assertEqual(status, 200, body)
