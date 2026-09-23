@@ -647,6 +647,10 @@ class SmartRouter:
                 mode_enum = RoutingMode.BALANCED
         else:
             mode_enum = routing_mode
+        # Use the normalised enum from here on; a raw "COST"/"Performance" string
+        # would otherwise compare unequal to every RoutingMode and silently score
+        # as BALANCED.
+        routing_mode = mode_enum
 
         pref_agent = preferred_agent or preferred_account
         classification = self.classify_task(task_text)
@@ -1060,6 +1064,12 @@ class SmartRouter:
             recommended_steering = [s.get("title") for s in ctx.relevant_steering if isinstance(s, dict)]
         except Exception as e:
             logger.debug("Failed building recommendation context in explain_routing: %s", e)
+        # Context entries without an id/name/title yield None; consumers join
+        # these lists as strings (`brain route explain` crashed on a None).
+        recommended_mcps = [str(x) for x in recommended_mcps if x]
+        recommended_tools = [str(x) for x in recommended_tools if x]
+        recommended_docs = [str(x) for x in recommended_docs if x]
+        recommended_steering = [str(x) for x in recommended_steering if x]
 
         affinity_boost = 0.0
         if self._performance_registry:

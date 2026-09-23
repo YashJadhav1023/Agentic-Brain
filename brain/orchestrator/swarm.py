@@ -627,6 +627,10 @@ class SwarmWorkerPool:
                 )
                 for lf in locked_files:
                     self._file_locker.release(lf, agent_id=agent_id)
+                # This early return bypasses the try/finally below, so the task
+                # must be deregistered here or it stays "active" forever.
+                with self._active_lock:
+                    self._active_tasks.pop(task.task_id, None)
                 return TaskExecutionResult(
                     task_id=task.task_id,
                     agent_id=agent_id,

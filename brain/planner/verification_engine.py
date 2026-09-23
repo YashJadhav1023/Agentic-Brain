@@ -96,7 +96,11 @@ class RollbackManager:
             try:
                 # Execute action safely
                 logger.info("Executing rollback for step %s: %s", step_id, action)
-                proc = subprocess.run(
+                # shell=True is intentional: rollback actions are shell command
+                # lines from the in-process caller or a local plan, never task
+                # text. ExecutionFabric.execute_step guardrail-checks them before
+                # registering; Planner.execute_plan no longer runs any.
+                proc = subprocess.run(  # nosec B602
                     action,
                     shell=True,
                     capture_output=True,

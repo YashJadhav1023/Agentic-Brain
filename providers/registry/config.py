@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -114,10 +115,19 @@ def max_concurrent_agents(path: str | None = None) -> int:
 def save_config(data: dict[str, Any], path: str | None = None) -> None:
     """Safely persist configuration data without exposing secrets."""
     target = Path(path) if path else resolve_config_path()
-    tmp_path = target.with_suffix(".tmp")
-    tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp_path.replace(target)
-    load_config.cache_clear()
+    # A unique temp name per write: a fixed "providers.tmp" let two concurrent
+    # savers (dashboard threads, CLI) interleave into one temp file and publish
+    # a torn providers.json via replace().
+    fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(data, indent=2))
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+    finally:
+        load_config.cache_clear()
 
 
 def add_account_config(

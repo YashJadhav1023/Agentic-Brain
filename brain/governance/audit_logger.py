@@ -45,12 +45,18 @@ class AuditEvent:
         return asdict(self)
 
 
+#: Anchored to the repository root (the same base LogRotator rotates), never the
+#: process CWD: a relative default scattered stray ledgers such as
+#: ui/dashboard/runtime/audit/audit.jsonl depending on where a command ran.
+DEFAULT_AUDIT_LOG_PATH = Path(__file__).resolve().parents[2] / "runtime" / "audit" / "audit.jsonl"
+
+
 class AuditLogger:
     """Append-only audit trail logger with automatic secret redaction."""
 
     def __init__(self, log_path: Optional[Path] = None) -> None:
         self._lock = threading.RLock()
-        self.log_path = log_path or Path("runtime/audit/audit.jsonl")
+        self.log_path = Path(log_path) if log_path else DEFAULT_AUDIT_LOG_PATH
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.cred_manager = get_credential_manager()
 

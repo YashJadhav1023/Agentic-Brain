@@ -16,6 +16,8 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +136,9 @@ class EncryptedFileStore(BaseCredentialStore):
     ) -> None:
         self.path = Path(path or storage_path or DEFAULT_STORE_FILE)
         self._key = self._derive_key()
+        # Serialises load-modify-save so concurrent store()/delete() calls in
+        # this process cannot drop each other's credentials.
+        self._lock = threading.RLock()
 
     def _derive_key(self) -> bytes:
         # Machine-unique key derived from machine-id / host identity and user salt
@@ -157,20 +162,31 @@ class EncryptedFileStore(BaseCredentialStore):
         return bytes(out)
 
     def _load_data(self) -> dict[str, str]:
+        data = self._load_data_strict()
+        return data if data is not None else {}
+
+    def _load_data_strict(self) -> dict[str, str] | None:
+        """Like _load_data, but None when a store exists and cannot be read.
+
+        Writers must use this: treating an unreadable store (tampered, truncated,
+        or keyed to a different machine-id) as empty and then saving would
+        silently overwrite every other stored credential.
+        """
         if not self.path.is_file():
             return {}
         try:
             raw = self.path.read_bytes()
             if len(raw) < 32:
-                return {}
+                return None
             tag, payload = raw[:32], raw[32:]
             expected = hmac.new(self._key, payload, hashlib.sha256).digest()
             if not hmac.compare_digest(tag, expected):
-                return {}
+                return None
             decrypted = self._xor_cipher(payload, self._key)
-            return json.loads(decrypted.decode("utf-8"))
+            data = json.loads(decrypted.decode("utf-8"))
+            return data if isinstance(data, dict) else None
         except Exception:
-            return {}
+            return None
 
     def _save_data(self, data: dict[str, str]) -> bool:
         try:
@@ -185,32 +201,41 @@ class EncryptedFileStore(BaseCredentialStore):
             tag = hmac.new(self._key, encrypted, hashlib.sha256).digest()
             content = tag + encrypted
 
-            # Write atomically with 0600 permissions
-            tmp_file = self.path.with_suffix(".tmp")
-            with open(tmp_file, "wb") as f:
-                os.chmod(tmp_file, 0o600)
-                f.write(content)
-            tmp_file.replace(self.path)
+            # Write atomically with 0600 permissions. mkstemp creates the file
+            # 0600 from the start and gives each writer its own temp name, so
+            # concurrent savers cannot interleave into one shared ".tmp".
+            fd, tmp_name = tempfile.mkstemp(dir=str(self.path.parent), prefix=f".{self.path.name}.", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(content)
+                os.replace(tmp_name, self.path)
+            except BaseException:
+                Path(tmp_name).unlink(missing_ok=True)
+                raise
             os.chmod(self.path, 0o600)
             return True
         except Exception:
             return False
 
     def store(self, key: str, secret: str) -> bool:
-        data = self._load_data()
-        data[key] = secret
-        return self._save_data(data)
+        with self._lock:
+            data = self._load_data_strict()
+            if data is None:
+                return False  # refuse to clobber an unreadable store
+            data[key] = secret
+            return self._save_data(data)
 
     def retrieve(self, key: str) -> str | None:
         data = self._load_data()
         return data.get(key)
 
     def delete(self, key: str) -> bool:
-        data = self._load_data()
-        if key in data:
-            del data[key]
-            return self._save_data(data)
-        return False
+        with self._lock:
+            data = self._load_data_strict()
+            if data is not None and key in data:
+                del data[key]
+                return self._save_data(data)
+            return False
 
     def exists(self, key: str) -> bool:
         return key in self._load_data()

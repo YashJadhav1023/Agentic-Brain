@@ -111,6 +111,10 @@ class ExecutionFabric:
         # 1. Safety check
         target_command = step.command or step.title
         violation = self._check_safety_violations(target_command)
+        if not violation and step.rollback_action:
+            # rollback_action is run through the shell too (RollbackManager), so it
+            # must pass the same guardrail as the forward command.
+            violation = self._check_safety_violations(step.rollback_action)
         if violation:
             return ExecutionResult(
                 execution_id=execution_id,
@@ -177,8 +181,13 @@ class ExecutionFabric:
 
         try:
             if step.command:
-                # Safe execution of non-prohibited command
-                proc = subprocess.run(
+                # shell=True is intentional: step.command is a shell command line
+                # supplied by the in-process caller (execute_task(command=...)) or a
+                # locally persisted plan -- never derived from task text; the
+                # decomposer does not set it. Callers rely on shell syntax (quoting,
+                # builtins such as "exit 1"), so argv splitting would break them.
+                # It has passed _check_safety_violations above.
+                proc = subprocess.run(  # nosec B602
                     step.command,
                     shell=True,
                     capture_output=True,

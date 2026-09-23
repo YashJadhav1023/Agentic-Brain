@@ -108,9 +108,24 @@ class Planner:
             # 2. Decompose into PlanSteps
             steps = self.decomposer.decompose(task)
 
-            # 3. Route and attach capabilities to each step
+            # 3. Route and attach capabilities to each step. The decomposer's
+            # agent is only a hint: pinning it made plan creation crash with
+            # "Requested agent 'antigravity' is not registered" on any machine
+            # without that agent (a supported fresh install). Fall back to open
+            # routing, and if no agent is available at all keep the step
+            # unrouted rather than failing the whole plan.
+            routing_warnings: List[str] = []
             for s in steps:
-                decision = self.router.route(s.description or s.title, preferred_agent=s.agent)
+                text = s.description or s.title
+                try:
+                    decision = self.router.route(text, preferred_agent=s.agent)
+                except RuntimeError as pinned_err:
+                    try:
+                        decision = self.router.route(text)
+                    except RuntimeError as open_err:
+                        routing_warnings.append(f"{s.step_id}: {open_err}")
+                        continue
+                    routing_warnings.append(f"{s.step_id}: {pinned_err}; re-routed to {decision.agent_id}")
                 s.agent = decision.agent_id
                 s.account = decision.account_id
                 s.provider = decision.provider_id
@@ -136,6 +151,7 @@ class Planner:
                 metadata={
                     "complexity": cls_res.suggested_complexity.value,
                     "keywords": cls_res.keywords_matched,
+                    **({"routing_warnings": routing_warnings} if routing_warnings else {}),
                 }
             )
 
@@ -200,9 +216,14 @@ class Planner:
                 step.status = StepStatus.RUNNING
                 t0 = time.time()
 
-                # Register rollback if step has one
-                if step.rollback_action:
-                    rollback_mgr.register_rollback(step.step_id, step.rollback_action)
+                # Rollbacks are deliberately NOT registered here. Steps in this
+                # path are simulated (nothing is executed), so there is nothing to
+                # compensate, while running a step's rollback_action (the decomposer
+                # emits "git checkout .") would discard the user's uncommitted work
+                # in the process CWD. A failed verification on a simulated step --
+                # e.g. a task title containing "fatal:" tripping "no_errors" --
+                # must never do that. Real rollbacks are applied by
+                # ExecutionFabric.execute_step, which actually runs step.command.
 
                 # Simulated safe step execution (or dispatch to agent)
                 # In Phase 18, steps complete with simulated execution and verification
