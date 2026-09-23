@@ -29,7 +29,12 @@ from providers.registry.account_registry import (
     AccountStatus,
     AuthenticationType,
 )
-from providers.registry.config import add_account_config, load_config, save_config
+from providers.registry.config import (
+    add_account_config,
+    load_config,
+    resolve_config_path,
+    save_config,
+)
 from providers.registry.lifecycle import (
     AccountLifecycleState,
     AccountLifecycleStateMachine,
@@ -69,7 +74,7 @@ class AntigravityAuthManager:
         registry: AccountRegistry | None = None,
     ) -> None:
         self.profile_root = Path(profile_root).expanduser() if profile_root else DEFAULT_PROFILE_ROOT
-        self.config_path = Path(config_path).expanduser() if config_path else DEFAULT_CONFIG_PATH
+        self.config_path = Path(config_path).expanduser() if config_path else resolve_config_path()
         self.registry = registry
         self._bin = self._resolve_binary(binary_path)
 

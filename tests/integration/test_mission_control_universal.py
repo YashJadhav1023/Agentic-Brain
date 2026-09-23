@@ -8,8 +8,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support.hermetic import FIXTURE_CONFIG
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_CONFIG = PROJECT_ROOT / "config" / "providers.json"
+
+#: Runs scripts/brain.py in a child interpreter *after* importing the ``tests``
+#: package, so the child gets the same hermetic defaults as this process
+#: (temp repo state, temp credential store with the keyring disabled, no real
+#: agent CLI runs). Invoked directly, the child wrote runtime/audit/audit.jsonl
+#: and memory/store/shared_memory.db into the checkout and stored the test's
+#: fake secret in the operator's real credential store.
+_HERMETIC_CLI_BOOTSTRAP = (
+    "import runpy, sys, tests; sys.argv = sys.argv[1:]; "
+    "runpy.run_path(sys.argv[0], run_name='__main__')"
+)
 
 
 class TestMissionControlUniversal(unittest.TestCase):
@@ -25,7 +38,8 @@ class TestMissionControlUniversal(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp_dir = tempfile.mkdtemp(prefix="mission-control-config-")
         self.config_path = Path(self._tmp_dir) / "providers.json"
-        shutil.copy2(CANONICAL_CONFIG, self.config_path)
+        # Start from the test fixture, not the operator's live account list.
+        shutil.copy2(FIXTURE_CONFIG, self.config_path)
         self._canonical_bytes = CANONICAL_CONFIG.read_bytes()
 
     def tearDown(self) -> None:
@@ -40,7 +54,12 @@ class TestMissionControlUniversal(unittest.TestCase):
     def run_cli(self, args: list[str]) -> subprocess.CompletedProcess:
         env = dict(os.environ)
         env["BRAIN_PROVIDERS_CONFIG"] = str(self.config_path)
-        cmd = [sys.executable, str(PROJECT_ROOT / "scripts" / "brain.py")] + args
+        # Keep this test's config copy across CLI calls (lifecycle persistence).
+        env["BRAIN_TESTS_KEEP_CONFIG"] = "1"
+        cmd = [
+            sys.executable, "-c", _HERMETIC_CLI_BOOTSTRAP,
+            str(PROJECT_ROOT / "scripts" / "brain.py"),
+        ] + args
         return subprocess.run(
             cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=env
         )

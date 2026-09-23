@@ -208,9 +208,43 @@ class TestSecretRedaction(unittest.TestCase):
                     "credential_ref",
                     "authentication_type",
                     "auth_type",
+                    # Deliberately widened in f97fc14 for the account wizard:
+                    # these hold a login-method *name* ("api_key", "oauth",
+                    # "workos_oauth"), never secret material, and the wizard UI
+                    # cannot show which method was chosen if they are redacted.
+                    # Values still pass value-level redaction (tested below).
+                    "auth_method",
+                    "login_method",
+                    "sso_method",
+                    # NOTE: matching lower-cases the key, so this camelCase entry
+                    # never matches anything; "authMethod" keys are still
+                    # redacted. Kept here only to pin the current set exactly.
+                    "authMethod",
                 }
             ),
         )
+
+    def test_login_method_names_survive_redaction(self):
+        clean = self.redactor.redact_dict(
+            {"auth_method": "oauth", "login_method": "api_key", "sso_method": "builder_id"}
+        )
+        self.assertEqual(
+            clean, {"auth_method": "oauth", "login_method": "api_key", "sso_method": "builder_id"}
+        )
+
+    def test_login_method_fields_still_scrub_secret_material(self):
+        """Allowlisting the method-name keys must not become a bypass."""
+        self.redactor.register_secret(FAKE_SECRET)
+        clean = self.redactor.redact_dict(
+            {
+                "auth_method": FAKE_SECRET,
+                "login_method": "sk-abcdefghijklmnopqrstuvwxyz0123456789",
+                "sso_method": "Bearer abcdefghijklmnopqrstuvwxyz",
+            }
+        )
+        blob = str(clean)
+        self.assertNotIn(FAKE_SECRET, blob)
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz", blob)
 
     def test_exception_traces_can_be_redacted_before_surfacing(self):
         self.redactor.register_secret(FAKE_SECRET)

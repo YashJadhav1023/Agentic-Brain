@@ -11,6 +11,7 @@ from agents.antigravity.adapter import (
     AntigravityAccountAdapter,
     AntigravityAdapter,
 )
+from providers.registry.config import resolve_config_path
 from agents.base.adapter import UNKNOWN_MODEL, AgentStatus, Capability, ExecutionMode
 
 
@@ -24,7 +25,9 @@ class TestAntigravityDiscovery(unittest.TestCase):
 
     def test_config_is_the_single_source_of_truth(self):
         self.assertTrue(DEFAULT_CONFIG_PATH.is_file())
-        data = json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+        # Account assertions run against the resolved (hermetic fixture) config,
+        # the same file load_from_config() reads.
+        data = json.loads(resolve_config_path().read_text(encoding="utf-8"))
         accounts = data["providers"]["antigravity"]["accounts"]
         self.assertEqual(accounts["antigravity-account-1"]["execution"]["app_data_dir"], "antigravity-account-jadhav")
         self.assertEqual(accounts["antigravity-account-2"]["execution"]["app_data_dir"], "antigravity-account-3")

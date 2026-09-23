@@ -9,9 +9,36 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from unittest import mock
+
+from agents.base.adapter import TaskExecutionResult
+from providers.adapters.bridge import AgentProviderBridge
 from ui.dashboard.dashboard import ThreadedHTTPServer, MissionControlHandler
 
-E2E_PORT = 18889
+
+def _fake_bridge_execute(self, job):
+    """Stand-in for a real agent CLI run.
+
+    /api/jobs auto-executes in a background thread. Unstubbed, that spawns the
+    real agent CLI on the operator's real account profile and spends real quota.
+    The HTTP -> router -> JobManager -> provider chain still runs for real; only
+    the final CLI invocation is replaced.
+    """
+    job.mark_started()
+    res = TaskExecutionResult(
+        task_id=job.id,
+        agent_id=self.adapter.agent_id,
+        account_id=self.adapter.account_id,
+        provider=self.adapter.provider,
+        success=True,
+        exit_code=0,
+        output="stubbed e2e execution",
+        error="",
+        actual_model=job.model or None,
+        total_tokens=42,
+    )
+    job.mark_completed(result={"output": res.output}, duration=0.0)
+    return res
 
 
 class TestEndToEndMissionControl(unittest.TestCase):
@@ -19,23 +46,27 @@ class TestEndToEndMissionControl(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.server = ThreadedHTTPServer(("127.0.0.1", E2E_PORT), MissionControlHandler)
+        cls._exec_patch = mock.patch.object(AgentProviderBridge, "execute", _fake_bridge_execute)
+        cls._exec_patch.start()
+        # Ephemeral port: a fixed port collides with any concurrently running suite.
+        cls.server = ThreadedHTTPServer(("127.0.0.1", 0), MissionControlHandler)
+        cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        time.sleep(0.5)
 
         # Retrieve auth token
-        with urllib.request.urlopen(f"http://127.0.0.1:{E2E_PORT}/api/token") as resp:
+        with urllib.request.urlopen(f"http://127.0.0.1:{cls.port}/api/token") as resp:
             cls.token = json.loads(resp.read().decode("utf-8"))["token"]
 
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
         cls.server.server_close()
+        cls._exec_patch.stop()
 
     def _post(self, path, payload):
         req = urllib.request.Request(
-            f"http://127.0.0.1:{E2E_PORT}{path}",
+            f"http://127.0.0.1:{self.port}{path}",
             data=json.dumps(payload).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
@@ -46,7 +77,11 @@ class TestEndToEndMissionControl(unittest.TestCase):
             return json.loads(resp.read().decode("utf-8"))
 
     def _get(self, path):
-        req = urllib.request.Request(f"http://127.0.0.1:{E2E_PORT}{path}")
+        # Sensitive GETs need the same bearer token the UI fetched from /api/token.
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}{path}",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
@@ -81,7 +116,17 @@ class TestEndToEndMissionControl(unittest.TestCase):
         self.assertIn("score_breakdown", dec)
         self.assertIn("capability_match", dec["score_breakdown"])
 
-        # 5. Verify usage tracking recorded tokens and requests
+        # 5. Execution runs in a background thread; wait for the job to finish,
+        #    then verify it completed and its usage was recorded. (Checking
+        #    /api/usage immediately only passed on leftover usage history.)
+        job = None
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            job = self._get(f"/api/jobs/{job_id}")
+            if job.get("status") in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(0.2)
+        self.assertEqual(job.get("status"), "completed", f"job did not complete: {job.get('error')}")
         usage = self._get("/api/usage")
         self.assertGreater(usage["requests"], 0)
 

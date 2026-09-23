@@ -5,6 +5,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 from pathlib import Path
 
 from events.bus import EventType
@@ -36,6 +37,17 @@ class TestMissionControlSecurity(unittest.TestCase):
         cls._orig_token_env = os.environ.get("MISSION_CONTROL_AUTH_TOKEN")
         os.environ["MISSION_CONTROL_AUTH_TOKEN"] = "test-suite-token-isolation-0123456789"
 
+        # /api/dispatch defaults to auto_execute=True, which starts
+        # orchestrator.execute_next() in a thread. The swapped TaskManager keeps
+        # the queue isolated, but the tasks were still executed for real: the
+        # live Antigravity CLI ran headless on account 2's real profile on every
+        # suite run. These tests cover auth, CORS and rate limiting only, so
+        # execution is replaced with a no-op that records it was triggered.
+        cls._exec_patch = mock.patch.object(
+            dashboard.orchestrator, "execute_next", return_value=[]
+        )
+        cls.execute_next = cls._exec_patch.start()
+
         # Bind ephemeral loopback port for testing
         cls.server = dashboard.ThreadedHTTPServer(
             ("127.0.0.1", 0), dashboard.MissionControlHandler
@@ -49,6 +61,7 @@ class TestMissionControlSecurity(unittest.TestCase):
     def tearDownClass(cls):
         cls.server.shutdown()
         cls.server.server_close()
+        cls._exec_patch.stop()
         dashboard.task_manager = cls._orig_tm
         dashboard.orchestrator._task_manager = cls._orig_orch_tm
         dashboard.orchestrator._swarm._task_manager = cls._orig_swarm_tm

@@ -16,6 +16,7 @@ Comprehensive validation of the entire mission chain:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -127,9 +128,12 @@ class TestPhase21ProductionEndToEnd(unittest.TestCase):
         self.assertTrue({"DISCOVERY", "ROUTING", "PLANNING", "APPROVAL", "EXECUTION"}.issubset(categories))
 
         # Verify no secrets in audit trail
+        # Shape-based rather than one hard-coded literal: no Render-style
+        # (rnd_...) or OpenAI project (sk-proj-) key may appear at all.
+        render_key = re.compile(r"rnd_[A-Za-z0-9]{20,}")
         for evt in audit_events:
             evt_str = str(evt)
-            self.assertNotIn("rnd_QFYB3p269neHNinLrVRCxMgu1Qr6", evt_str)
+            self.assertIsNone(render_key.search(evt_str), "Render-style key in audit trail")
             self.assertNotIn("sk-proj-", evt_str)
 
     def test_antigravity_gui_and_credentials_isolation(self) -> None:
@@ -140,7 +144,7 @@ class TestPhase21ProductionEndToEnd(unittest.TestCase):
         unrelated processes. See tests/support/gui_guard.py.
         """
         # 1. GUI process identity check
-        from support.gui_guard import describe_gui, find_gui_processes
+        from tests.support.gui_guard import describe_gui, find_gui_processes
 
         gui_procs = find_gui_processes()
         if not gui_procs:
