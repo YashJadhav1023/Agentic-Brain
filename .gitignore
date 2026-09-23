@@ -51,6 +51,13 @@ tasks/completed/*.json
 tasks/failed/*.json
 handoffs/archive/*.md
 handoffs/archive/*.json
+# The live handoff baton is rewritten on every run; it is per-machine state.
+handoffs/current.md
+handoffs/current.json
+
+# Runtime state written relative to the process CWD (e.g. AuditLogger's
+# default path when the dashboard is started from ui/dashboard/).
+ui/dashboard/runtime/
 
 # Manual pre-edit config snapshots (operator artifacts, not source)
 backups/
