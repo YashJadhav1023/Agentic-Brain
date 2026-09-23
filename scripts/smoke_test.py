@@ -474,7 +474,8 @@ def check_cli(sb: Sandbox, rep: Report) -> None:
 
     c("worktree status", ["worktree", "status"])
     c("worktree diff: unknown task rejected", ["worktree", "diff", "task-doesnotexist"], expect_ok=False)
-    c("worktree cleanup", ["worktree", "cleanup"])
+    c("worktree cleanup without --confirm is refused", ["worktree", "cleanup"], expect_ok=False)
+    c("worktree cleanup --confirm", ["worktree", "cleanup", "--confirm"])
 
     c("accounts list", ["accounts", "list"])
     c("accounts list --json", ["accounts", "list", "--json"], json_out=True)
@@ -859,7 +860,7 @@ def _dashboard_checks(sb: Sandbox, d: Dashboard, rep: Report) -> None:
     expect("worktree reject: unknown task -> 404", "POST", "/api/worktrees/reject", 404,
            body={"task_id": "task-nope", "confirm": True})
     expect("worktree cleanup (batch)", "POST", "/api/worktrees/cleanup", 200, body={"confirm": True})
-    expect("worktree recover: missing task_id -> 400", "POST", "/api/worktrees/recover", 400, body={})
+    expect("worktree recover: no task_id recovers all", "POST", "/api/worktrees/recover", 200, body={})
     expect("worktree recover: unknown -> 404", "POST", "/api/worktrees/recover", 404,
            body={"task_id": "task-nope"})
 
@@ -907,8 +908,9 @@ def _dashboard_checks(sb: Sandbox, d: Dashboard, rep: Report) -> None:
     rep.add("security", "unauthenticated cline callback without state cannot register an account",
             "GET /api/oauth/cline/callback?code=<forged base64 JSON>, no state",
             n_after == n_before, f"HTTP {st}; accounts {n_before} -> {n_after}")
+    expect("kiro auto-import requires auth", "GET", "/api/oauth/kiro/auto-import", 401, auth=False)
     expect("kiro auto-import (sandbox has no kiro session)", "GET", "/api/oauth/kiro/auto-import",
-           (200, 404), auth=False)
+           (200, 404))
     expect("wizard step: unknown session -> 404", "POST", "/api/wizard/cancel", 404,
            body={"wizard_id": "nope"})
 
