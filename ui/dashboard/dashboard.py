@@ -67,7 +67,7 @@ from providers.api.openai_compatible import OpenAICompatibleProvider
 from providers.base import ProviderType
 from providers.registry.account_registry import Account, AccountStatus, AuthenticationType
 from providers.registry.bootstrap import create_default_registry, sync_registry_with_config
-from providers.registry.config import resolve_config_path
+from providers.registry.config import load_config, resolve_config_path
 from providers.registry.credential_manager import SecretRedactor, get_credential_manager
 from providers.registry.model_registry import ModelMetadata
 from tasks.manager import Task, TaskManager, TaskPriority, TaskStatus
@@ -89,6 +89,95 @@ def brain_dir() -> Path:
     return Path(os.environ.get("BRAIN_DIR", "")).expanduser() if os.environ.get("BRAIN_DIR") \
         else Path.home() / "agentic-brain"
 
+
+
+def _js_literal(value: Any) -> str:
+    """Encode a value as a JS literal that is safe inside an inline <script>.
+
+    json.dumps alone leaves ``</script>`` intact, and html.escape does not stop
+    a backslash from escaping the closing quote, so neither is safe for
+    attacker-influenced strings (OAuth callback query parameters, emails).
+    """
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
+_STALE_WORKTREE_STATUSES = frozenset({"APPLIED", "REJECTED", "FAILED", "ORPHANED"})
+
+
+def _cleanup_stale_worktrees(manager: Any, max_age_hours: int) -> list[dict[str, Any]]:
+    """Clean finished/abandoned worktrees last updated more than max_age_hours ago."""
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=max(0, max_age_hours))
+    records = manager.status() or []
+    if not isinstance(records, list):
+        records = [records]
+    cleaned: list[dict[str, Any]] = []
+    for rec in records:
+        status = getattr(rec.status, "value", rec.status)
+        if status not in _STALE_WORKTREE_STATUSES:
+            continue
+        try:
+            updated = datetime.datetime.fromisoformat(str(rec.updated_at).replace("Z", "+00:00"))
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            continue
+        if updated > cutoff:
+            continue
+        # Keep the branch: a FAILED/ORPHANED sandbox may still hold commits worth
+        # inspecting. Only the on-disk worktree directory is reclaimed.
+        if manager.cleanup(rec.task_id, force=True, delete_branch=False):
+            cleaned.append({"task_id": rec.task_id, "previous_status": status})
+    return cleaned
+
+
+class BadRequest(ValueError):
+    """A client error the request dispatcher turns into a 400 JSON response."""
+
+
+def _as_int(value: Any, field: str, default: int | None = None) -> int:
+    """Coerce a request value to int, raising BadRequest instead of ValueError.
+
+    Unhandled ValueError from a bare ``int()`` escaped the handler and dropped
+    the connection with no HTTP response at all.
+    """
+    if value is None or value == "":
+        if default is None:
+            raise BadRequest(f"'{field}' is required")
+        return default
+    if isinstance(value, bool):
+        raise BadRequest(f"'{field}' must be an integer")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise BadRequest(f"'{field}' must be an integer, got {str(value)[:40]!r}") from None
+
+
+_PROVIDER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$")
+
+
+def _redact_preserving_booleans(data: Any) -> Any:
+    """Redact like _serve_json, but restore plain booleans the redactor masked.
+
+    The key-name heuristic masks e.g. ``authenticated``/``token_exists``
+    because they contain "auth"/"token"; a bool cannot carry secret material.
+    """
+    sanitized = redactor.redact_dict(data)
+
+    def restore(orig: Any, red: Any) -> Any:
+        if isinstance(orig, bool):
+            return orig
+        if isinstance(orig, dict) and isinstance(red, dict):
+            return {k: (restore(orig[k], v) if k in orig else v) for k, v in red.items()}
+        if isinstance(orig, list) and isinstance(red, list) and len(orig) == len(red):
+            return [restore(o, r) for o, r in zip(orig, red)]
+        return red
+
+    return restore(data, sanitized)
 
 
 def sanitize_account_id(account_id: str) -> str:
@@ -512,6 +601,21 @@ class WizardSession:
         return redactor.redact_dict(d)
 
 
+def _is_trusted_local_file(p: Path) -> bool:
+    """True if `p` is owned by this user and not world-writable.
+
+    One OAuth-config fallback lives under world-writable /tmp, where any other
+    local user could plant a file that swaps in their own OAuth client.
+    """
+    try:
+        st = p.stat()
+    except OSError:
+        return False
+    if hasattr(os, "getuid") and st.st_uid != os.getuid():
+        return False
+    return not (st.st_mode & 0o002)
+
+
 def _get_antigravity_oauth_credentials() -> tuple[str, str]:
     """Retrieve Antigravity Google OAuth Client ID and Secret dynamically."""
     cid = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_ID", "").strip()
@@ -531,7 +635,7 @@ def _get_antigravity_oauth_credentials() -> tuple[str, str]:
             Path("/tmp/omniroute/src/lib/oauth/providers/antigravity.ts"),
         ]
         for p in paths:
-            if p.is_file():
+            if p.is_file() and _is_trusted_local_file(p):
                 try:
                     if p.suffix == ".json":
                         d = json.loads(p.read_text(encoding="utf-8"))
@@ -632,9 +736,39 @@ class WizardManager:
         Capability.CODE_REVIEW,
     })
 
+    #: Lifetime of a server-issued OAuth ``state`` nonce.
+    OAUTH_STATE_TTL_SECONDS = 600.0
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._sessions: dict[str, WizardSession] = {}
+        # nonce -> (wizard_id, provider_id, expires_at). Nonces are issued only
+        # from an authenticated launch-login call and are single-use.
+        self._oauth_states: dict[str, tuple[str, str, float]] = {}
+
+    def issue_oauth_state(self, sess: WizardSession) -> str:
+        """Mint a single-use, expiring OAuth state bound to this wizard session."""
+        nonce = secrets.token_urlsafe(32)
+        now = time.time()
+        with self._lock:
+            # Drop expired nonces so the table cannot grow without bound.
+            for k in [k for k, v in self._oauth_states.items() if v[2] < now]:
+                del self._oauth_states[k]
+            self._oauth_states[nonce] = (sess.wizard_id, sess.provider_id, now + self.OAUTH_STATE_TTL_SECONDS)
+        return nonce
+
+    def consume_oauth_state(self, nonce: str, provider_id: str) -> WizardSession | None:
+        """Validate and burn an OAuth state. Returns the bound live session or None."""
+        if not nonce:
+            return None
+        with self._lock:
+            entry = self._oauth_states.pop(nonce, None)
+            if entry is None:
+                return None
+            wizard_id, bound_provider, expires_at = entry
+            if bound_provider != provider_id or expires_at < time.time():
+                return None
+            return self._sessions.get(wizard_id)
 
     # ---- auth-method discovery -------------------------------------------
     def auth_methods_for(self, provider_id: str) -> list[dict[str, str]]:
@@ -876,10 +1010,14 @@ class WizardManager:
 
         elif sess.provider_id == "cline":
             redirect_uri = f"{origin}/api/oauth/cline/callback"
+            # The callback is a public GET, so `state` must be an unguessable,
+            # single-use nonce minted here (an authenticated call), not the
+            # wizard id, or any page could forge a callback (login CSRF).
+            oauth_state = self.issue_oauth_state(sess)
             auth_url = (
                 f"https://api.cline.bot/api/v1/auth/authorize?client_type=extension"
                 f"&callback_url={urllib.parse.quote(redirect_uri)}"
-                f"&state={urllib.parse.quote(sess.wizard_id)}"
+                f"&state={urllib.parse.quote(oauth_state)}"
                 f"&account_id={urllib.parse.quote(sess.account_id)}"
             )
             return {
@@ -1015,7 +1153,7 @@ class WizardManager:
             try:
                 get_credential_manager().store(cred_ref, token_val)
             except Exception as exc:
-                raise WizardError(f"Failed to store credential securely: {exc}", AccountLifecycleState.CONFIG_ERROR)
+                raise WizardError(f"Failed to store credential securely: {exc}", AccountLifecycleState.CONFIG_ERROR) from None
             sess.credential_reference = cred_ref
             if sess.account is not None:
                 sess.account.credential_reference = cred_ref
@@ -1171,9 +1309,9 @@ class WizardManager:
             raise
         except ValueError as exc:
             # e.g. a protected-profile guard — treat as auth failure with message.
-            raise WizardError(f"Authentication setup rejected: {exc}", AccountLifecycleState.AUTH_FAILED)
+            raise WizardError(f"Authentication setup rejected: {exc}", AccountLifecycleState.AUTH_FAILED) from None
         except Exception as exc:
-            raise WizardError(f"Authentication failed: {exc}", AccountLifecycleState.AUTH_FAILED)
+            raise WizardError(f"Authentication failed: {exc}", AccountLifecycleState.AUTH_FAILED) from None
 
         self._transition(sess, AccountLifecycleState.AUTHENTICATED, reason="Authenticated")
         wizard_event_stream.emit(
@@ -1799,6 +1937,25 @@ def is_allowed_origin(origin: str | None) -> bool:
 ALLOWED_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
+def is_allowed_host_header(host: str | None) -> bool:
+    """Reject non-loopback Host headers (DNS-rebinding defence).
+
+    A rebinding page (``http://attacker.example:3333`` re-resolved to 127.0.0.1)
+    is same-origin to the browser, so its GETs carry no Origin header and would
+    otherwise be able to read the public ``/api/token`` handshake. Browsers
+    always send the page's own hostname in ``Host``, so pinning it to loopback
+    closes that path. A missing Host (raw HTTP/1.0 client) cannot come from a
+    browser and is allowed.
+    """
+    if host is None:
+        return True
+    try:
+        hostname = urllib.parse.urlsplit(f"//{host.strip()}").hostname
+    except ValueError:
+        return False
+    return hostname in ALLOWED_LOOPBACK_HOSTS
+
+
 class SecurityError(RuntimeError):
     """Raised when a local boundary or security invariant is violated."""
 
@@ -1813,6 +1970,11 @@ def validate_host_binding(host: str) -> str:
     return host
 
 
+# Upper bound for JSON request bodies. Every legitimate payload (task
+# instructions, memory notes, wizard config) is far smaller; without a cap a
+# single request could make the server buffer an arbitrary Content-Length.
+MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024
+
 PUBLIC_GET_PATHS = frozenset({
     "/",
     # Browsers request /favicon.ico unconditionally and without the Authorization
@@ -1824,7 +1986,9 @@ PUBLIC_GET_PATHS = frozenset({
     "/api/status",
     "/api/token",
     "/api/oauth/cline/callback",
-    "/api/oauth/kiro/auto-import",
+    # /api/oauth/kiro/auto-import is deliberately NOT public: it is an API call
+    # made by the authenticated UI (not a browser redirect target), and it
+    # spawns `kiro-cli whoami` and returns the signed-in email / SSO start URL.
 })
 
 
@@ -1834,7 +1998,7 @@ def is_public_path(path: str) -> bool:
         return True
     if path.startswith("/static/"):
         return True
-    if path.startswith("/api/oauth/") and (path.endswith("/callback") or path.endswith("/auto-import")):
+    if path.startswith("/api/oauth/") and path.endswith("/callback"):
         return True
     if path.startswith("/api/oauth/callback"):
         return True
@@ -1844,6 +2008,9 @@ def is_public_path(path: str) -> bool:
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    # listen() backlog. The socketserver default of 5 reset connections as soon
+    # as a few dozen UI polls / SSE clients arrived at once.
+    request_queue_size = 128
 
     def __init__(
         self,
@@ -1876,8 +2043,10 @@ class MissionControlHandler(BaseHTTPRequestHandler):
 
     def _check_origin(self) -> bool:
         origin = self.headers.get("Origin")
-        if origin and not is_allowed_origin(origin):
-            out = json.dumps({"error": "Forbidden", "message": "Disallowed cross-origin request"}).encode("utf-8")
+        bad_host = not is_allowed_host_header(self.headers.get("Host"))
+        if bad_host or (origin and not is_allowed_origin(origin)):
+            message = "Disallowed Host header" if bad_host else "Disallowed cross-origin request"
+            out = json.dumps({"error": "Forbidden", "message": message}).encode("utf-8")
             self.send_response(403)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -1944,6 +2113,47 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 pass
             return False
 
+    def _dispatch(self, handler: Any) -> None:
+        try:
+            handler()
+        except BadRequest as exc:
+            self._serve_json({"error": "Bad Request", "message": str(exc)}, status=400)
+
+    def _read_json_body(self) -> dict[str, Any] | None:
+        """Read and parse a bounded JSON request body.
+
+        Returns the parsed object (``{}`` for an empty body), or ``None`` after
+        answering 400/413 itself when Content-Length is invalid or too large or
+        the body is not a JSON object.
+        """
+        raw_len = self.headers.get("Content-Length", "0") or "0"
+        try:
+            length = int(raw_len)
+        except ValueError:
+            length = -1
+        if length < 0:
+            self.close_connection = True
+            self._serve_json({"error": "Invalid Content-Length"}, status=400)
+            return None
+        if length > MAX_REQUEST_BODY_BYTES:
+            self.close_connection = True
+            self._serve_json(
+                {"error": "Payload Too Large", "max_bytes": MAX_REQUEST_BODY_BYTES},
+                status=413,
+            )
+            return None
+        if length == 0:
+            return {}
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            self._serve_json({"error": "Bad Request", "message": "Malformed JSON body"}, status=400)
+            return None
+        if not isinstance(payload, dict):
+            self._serve_json({"error": "Bad Request", "message": "JSON body must be an object"}, status=400)
+            return None
+        return payload
+
     def _serve_json(self, data: Any, status: int = 200, redact: bool = True) -> None:
         # Phase 10: Apply SecretRedactor to all API response payloads.
         #
@@ -1970,7 +2180,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
     def _serve_static(self, path: str) -> None:
         rel = path.replace("/static/", "").lstrip("/")
         file_path = (STATIC_DIR / rel).resolve()
-        if not str(file_path).startswith(str(STATIC_DIR)):
+        # is_relative_to, not a string prefix test: "static_x/..." shares the
+        # "static" prefix but lies outside STATIC_DIR.
+        if not file_path.is_relative_to(STATIC_DIR):
             self.send_response(403)
             self._apply_security_headers()
             self.end_headers()
@@ -2386,6 +2598,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
+        self._dispatch(self._handle_GET)
+
+    def _handle_GET(self) -> None:
         if not self._check_origin():
             return
 
@@ -2522,7 +2737,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             if not sess:
                 self._serve_json({"error": "Wizard session not found"}, status=404)
             else:
-                self._serve_json(wizard_manager.check_auth_status(sess))
+                self._serve_json(_redact_preserving_booleans(wizard_manager.check_auth_status(sess)), redact=False)
 
         elif path == "/api/events/stream":
             self.send_response(200)
@@ -2631,7 +2846,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             query = self.path.split("?")[1] if "?" in self.path else ""
             params = urllib.parse.parse_qs(query)
             t_id = params.get("task_id", [None])[0]
-            lim = int(params.get("limit", [100])[0])
+            lim = _as_int(params.get("limit", [100])[0], "limit", 100)
             self._serve_json({"retrievals": memory_store.list_retrievals(limit=lim, task_id=t_id)})
         elif path == "/api/handoff":
             content = handoff_manager.get_current_handoff() or "No active handoff available."
@@ -2645,7 +2860,13 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         elif path == "/api/handoff/record":
             query = self.path.split("?")[1] if "?" in self.path else ""
             params = urllib.parse.parse_qs(query)
-            fname = params.get("filename", ["current.json"])[0]
+            # The UI historically sent `name=`; accept both spellings.
+            fname = (params.get("filename") or params.get("name") or ["current.json"])[0]
+            # get_record_by_name joins this onto the archive dir, so a name with
+            # a separator or leading dot could read any *.json on disk.
+            if "/" in fname or "\\" in fname or fname.startswith(".") or "\x00" in fname:
+                self._serve_json({"error": "Invalid handoff record name"}, status=400)
+                return
             rec = handoff_manager.get_record_by_name(fname)
             self._serve_json({"record": rec})
         elif path in ("/api/metrics/tokens", "/api/tokens"):
@@ -2872,7 +3093,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         elif path == "/api/routing/history":
             query = self.path.split("?")[1] if "?" in self.path else ""
             params = urllib.parse.parse_qs(query)
-            lim = int(params.get("limit", [50])[0])
+            lim = _as_int(params.get("limit", [50])[0], "limit", 50)
             jid = params.get("job_id", [None])[0]
             router = SmartRouter(registry)
             history = router.get_routing_history(limit=lim, job_id=jid)
@@ -3063,16 +3284,16 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self) -> None:
+        self._dispatch(self._handle_POST)
+
+    def _handle_POST(self) -> None:
         if not self._check_origin():
             return
 
         path = self.path.split("?")[0]
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
-        try:
-            payload = json.loads(body)
-        except Exception:
-            payload = {}
+        payload = self._read_json_body()
+        if payload is None:
+            return
 
         # 1. Unauthenticated endpoints
         if path == "/api/route":
@@ -3220,7 +3441,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             scope_enum = None
             if scope_str:
                 try:
-                    scope_enum = MemoryScope(scope_str.lower())
+                    scope_enum = MemoryScope(str(scope_str).upper())
                 except Exception:
                     pass
             retriever = MemoryRetriever(memory_store)
@@ -3240,16 +3461,19 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             if not content:
                 self._serve_json({"error": "Memory content cannot be empty"}, status=400)
                 return
-            scope_str = payload.get("scope", "project").lower()
+            scope_str = str(payload.get("scope") or "PROJECT").upper()
             try:
                 scope = MemoryScope(scope_str)
-            except Exception:
-                scope = MemoryScope.PROJECT
+            except ValueError:
+                raise BadRequest(
+                    f"Unknown memory scope {scope_str[:40]!r}; expected one of "
+                    + ", ".join(m.value for m in MemoryScope)
+                ) from None
             entry = memory_store.add(
                 content=content,
                 scope=scope,
                 source_agent=payload.get("source_agent", "user-mission-control"),
-                importance=int(payload.get("importance", 3)),
+                importance=_as_int(payload.get("importance"), "importance", 3),
                 tags=payload.get("tags", []),
             )
             self._serve_json({"status": "added", "memory": entry.to_dict()})
@@ -3257,6 +3481,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             task_id = payload.get("task_id")
             if not task_id:
                 self._serve_json({"error": "Missing task_id"}, status=400)
+                return
+            if orchestrator.worktrees.get(task_id) is None:
+                self._serve_json({"error": f"No worktree record for task '{task_id}'"}, status=404)
                 return
             try:
                 approver = payload.get("approver", "mission_control")
@@ -3290,6 +3517,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             if not task_id:
                 self._serve_json({"error": "Missing task_id"}, status=400)
                 return
+            if orchestrator.worktrees.get(task_id) is None:
+                self._serve_json({"error": f"No worktree record for task '{task_id}'"}, status=404)
+                return
             try:
                 reason = payload.get("reason", "Rejected via Mission Control")
                 result = orchestrator.worktrees.reject(task_id=task_id, reason=reason, confirm=True)
@@ -3312,12 +3542,19 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 self._serve_json({"error": str(exc)}, status=500)
         elif path == "/api/worktrees/cleanup":
             task_id = payload.get("task_id")
+            # Validate before touching anything (400, not a dropped connection).
+            max_age = _as_int(payload.get("max_age_hours"), "max_age_hours", 24)
             try:
                 if task_id:
-                    result = orchestrator.worktrees.remove(
-                        task_id=task_id,
-                        confirm=True,
-                        delete_branch=payload.get("delete_branch", True),
+                    if orchestrator.worktrees.get(task_id) is None:
+                        self._serve_json({"error": f"No worktree record for task '{task_id}'"}, status=404)
+                        return
+                    # WorktreeManager.cleanup(task_id, force, delete_branch);
+                    # `remove` is an alias that accepts no delete_branch/confirm.
+                    result = orchestrator.worktrees.cleanup(
+                        task_id,
+                        force=True,
+                        delete_branch=bool(payload.get("delete_branch", True)),
                     )
                     event_bus.emit(
                         Event(
@@ -3328,8 +3565,11 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                     )
                     self._serve_json({"status": "cleaned", "task_id": task_id, "result": result})
                 else:
-                    max_age = int(payload.get("max_age_hours", 24))
-                    cleaned = orchestrator.worktrees.cleanup(max_age_hours=max_age)
+                    # WorktreeManager has no age-based batch cleanup, so select
+                    # here: only finished/abandoned sandboxes older than
+                    # max_age_hours. ACTIVE/CREATED/PENDING_REVIEW/APPROVED hold
+                    # unreviewed work and are never swept in bulk.
+                    cleaned = _cleanup_stale_worktrees(orchestrator.worktrees, max_age)
                     for item in cleaned:
                         event_bus.emit(
                             Event(
@@ -3343,12 +3583,22 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 self._serve_json({"error": str(exc)}, status=500)
         elif path == "/api/worktrees/recover":
             task_id = payload.get("task_id")
-            if not task_id:
-                self._serve_json({"error": "Missing task_id"}, status=400)
-                return
             try:
-                record = orchestrator.worktrees.recover(task_id=task_id)
-                self._serve_json({"status": "recovered", "worktree": record.to_dict()})
+                # WorktreeManager.recover() takes no arguments: it scans every
+                # record for orphans. task_id (optional) narrows the response.
+                recovered = orchestrator.worktrees.recover()
+                body: dict[str, Any] = {
+                    "status": "recovered",
+                    "recovered": [r.to_dict() for r in recovered],
+                    "count": len(recovered),
+                }
+                if task_id:
+                    record = orchestrator.worktrees.get(task_id)
+                    if record is None:
+                        self._serve_json({"error": f"No worktree record for task '{task_id}'"}, status=404)
+                        return
+                    body["worktree"] = record.to_dict()
+                self._serve_json(body)
             except Exception as exc:
                 self._serve_json({"error": str(exc)}, status=500)
 
@@ -3361,6 +3611,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             if not name or not provider_id:
                 self._serve_json({"error": "Missing required fields: name/account_id, provider/provider_id"}, status=400)
                 return
+            # Validate numeric fields before any credential is stored.
+            priority = _as_int(payload.get("priority"), "priority", 10)
+            concurrency_limit = _as_int(payload.get("concurrency_limit"), "concurrency_limit", 2)
             account_id = payload.get("account_id") or (f"{provider_id}-{name}" if not name.startswith(provider_id) else name)
             if registry.account_registry.get_account(account_id):
                 self._serve_json({"error": f"Account '{account_id}' already exists"}, status=409)
@@ -3387,10 +3640,10 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 credential_reference=cred_ref,
                 status=AccountStatus.ONLINE if (cred_ref or auth_type in (AuthenticationType.UNAUTHENTICATED, AuthenticationType.LOCAL, AuthenticationType.OAUTH)) else AccountStatus.NOT_CONFIGURED,
                 enabled=True,
-                priority=int(payload.get("priority", 10)),
+                priority=priority,
                 models=models_list,
                 capabilities=payload.get("capabilities", []),
-                concurrency_limit=int(payload.get("concurrency_limit", 2)),
+                concurrency_limit=concurrency_limit,
             )
             registry.account_registry.register_account(new_account)
             try:
@@ -3401,10 +3654,10 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                     "credential_reference": cred_ref,
                     "authentication_type": auth_type.value if hasattr(auth_type, "value") else str(auth_type),
                     "enabled": True,
-                    "priority": int(payload.get("priority", 10)),
+                    "priority": new_account.priority,
                     "models": models_list,
                     "capabilities": payload.get("capabilities", []),
-                    "concurrency_limit": int(payload.get("concurrency_limit", 2)),
+                    "concurrency_limit": new_account.concurrency_limit,
                 }
                 add_account_config(provider_id, account_id, acct_data)
                 ensure_registry_synced(force=True)
@@ -3480,8 +3733,11 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         elif path == "/api/providers":
             if not self._verify_auth(path):
                 return
-            p_id = payload.get("id", "").strip()
-            name = payload.get("name", "").strip() or p_id.capitalize()
+            p_id = payload.get("id")
+            p_id = p_id.strip() if isinstance(p_id, str) else ""
+            if not _PROVIDER_ID_RE.match(p_id):
+                raise BadRequest("'id' is required: 1-64 chars of letters, digits, '.', '_' or '-'")
+            name = str(payload.get("name") or "").strip() or p_id.capitalize()
             p_type = payload.get("type", "api").lower()
             base_url = payload.get("base_url", "https://api.openai.com/v1")
             models = payload.get("models", [])
@@ -3750,7 +4006,10 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                     self._serve_json({"status": "ok", "login": info, "wizard": sess.to_dict()})
                 elif action == "check-auth":
                     status_info = wizard_manager.check_auth_status(sess)
-                    self._serve_json({"status": "ok", "auth_status": status_info, "wizard": sess.to_dict()})
+                    self._serve_json(
+                        _redact_preserving_booleans({"status": "ok", "auth_status": status_info, "wizard": sess.to_dict()}),
+                        redact=False,
+                    )
                 elif action == "authenticate":
                     wizard_manager.authenticate(sess)
                     self._serve_json({"status": "ok", "wizard": sess.to_dict()})
@@ -3831,15 +4090,15 @@ class MissionControlHandler(BaseHTTPRequestHandler):
 
     # ── Phase 12-14: PATCH handler (Account & Model updates) ──────────
     def do_PATCH(self) -> None:
+        self._dispatch(self._handle_PATCH)
+
+    def _handle_PATCH(self) -> None:
         if not self._check_origin():
             return
         path = self.path.split("?")[0]
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
-        try:
-            payload = json.loads(body)
-        except Exception:
-            payload = {}
+        payload = self._read_json_body()
+        if payload is None:
+            return
 
         if path.startswith("/api/accounts/"):
             if not self._verify_auth(path):
@@ -3852,7 +4111,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             updated = registry.account_registry.update_account(
                 account_id=a_id,
                 display_name=payload.get("display_name"),
-                priority=int(payload["priority"]) if "priority" in payload else None,
+                priority=_as_int(payload["priority"], "priority") if "priority" in payload else None,
                 enabled=payload.get("enabled"),
                 metadata=payload.get("metadata"),
             )
@@ -3871,7 +4130,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             if "enabled" in payload:
                 model.enabled = bool(payload["enabled"])
             if "priority" in payload:
-                model.priority = int(payload["priority"])
+                model.priority = _as_int(payload["priority"], "priority")
             if "capabilities" in payload:
                 caps = payload["capabilities"]
                 if isinstance(caps, list):
@@ -3884,6 +4143,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
 
     # ── Phase 12-14: DELETE handler (Account & Quota removal) ─────────
     def do_DELETE(self) -> None:
+        self._dispatch(self._handle_DELETE)
+
+    def _handle_DELETE(self) -> None:
         if not self._check_origin():
             return
         path = self.path.split("?")[0]
@@ -4123,11 +4385,11 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
   </div>
   <script>
     if (window.opener) {{
-      try {{ window.opener.postMessage({{ type: 'google_oauth_complete', wizard_id: '{html.escape(state)}', account_id: '{html.escape(sess.account_id)}', email: '{html.escape(user_email)}' }}, '*'); }} catch (e) {{}}
+      try {{ window.opener.postMessage({{ type: 'google_oauth_complete', wizard_id: {_js_literal(state)}, account_id: {_js_literal(sess.account_id)}, email: {_js_literal(user_email)} }}, '*'); }} catch (e) {{}}
       setTimeout(() => {{ window.close(); }}, 1200);
     }} else {{
       setTimeout(() => {{
-        window.location.href = '/?oauth_complete=1&account_id={urllib.parse.quote(sess.account_id)}';
+        window.location.href = {_js_literal('/?oauth_complete=1&account_id=' + urllib.parse.quote(sess.account_id))};
       }}, 1200);
     }}
   </script>
@@ -4169,6 +4431,19 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
         code_candidates = params.get("code") or []
         if not code_candidates:
             self._serve_html_content("<h1>Missing OAuth 'code' parameter</h1>", status=400)
+            return
+
+        # CSRF / login-forgery guard: this route is public (it is a browser
+        # redirect target), so nothing may be written unless `state` is a live,
+        # single-use nonce issued by an authenticated launch-login call.
+        state_param = (params.get("state") or [""])[0].strip()
+        oauth_sess = wizard_manager.consume_oauth_state(state_param, "cline")
+        if oauth_sess is None:
+            self._serve_html_content(
+                "<h1>Invalid or expired OAuth state</h1>"
+                "<p>Start Cline sign-in again from Mission Control.</p>",
+                status=400,
+            )
             return
 
         raw_code = code_candidates[0]
@@ -4277,19 +4552,9 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
         if not user_email:
             user_email = "cline-user@agentic.ai"
 
-        # Determine target account_id
-        state_param = (params.get("state") or [""])[0].strip()
-        account_param = (params.get("account_id") or [""])[0].strip()
-        account_id = ""
-        if account_param:
-            account_id = sanitize_account_id(account_param)
-        elif state_param:
-            sess = wizard_manager.get(state_param)
-            if sess and sess.provider_id == "cline":
-                account_id = sess.account_id
-
-        if not account_id:
-            account_id = wizard_manager.next_account_id("cline")
+        # Target account comes from the verified wizard session only; a query
+        # `account_id` is attacker-controllable and is ignored.
+        account_id = sanitize_account_id(oauth_sess.account_id) or wizard_manager.next_account_id("cline")
 
         # Setup isolated profile storage
         profile_base = Path.home() / ".mission-control" / "cline" / account_id
@@ -4360,11 +4625,8 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
         add_account_config("cline", account_id, account_conf)
         ensure_registry_synced(force=True)
 
-        if state_param:
-            sess = wizard_manager.get(state_param)
-            if sess:
-                sess.step = "complete"
-                sess.completed = True
+        oauth_sess.step = "complete"
+        oauth_sess.completed = True
 
         try:
             event_bus.emit(
@@ -4405,9 +4667,9 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
       try {{
         window.opener.postMessage({{
           type: 'cline_oauth_complete',
-          email: {json.dumps(user_email)},
-          account_id: {json.dumps(account_id)},
-          wizard_id: {json.dumps(state_param)}
+          email: {_js_literal(user_email)},
+          account_id: {_js_literal(account_id)},
+          wizard_id: {_js_literal(oauth_sess.wizard_id)}
         }}, '*');
         setTimeout(function() {{ window.close(); }}, 1200);
       }} catch(e) {{}}
@@ -4529,7 +4791,7 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
                 cursor = conn.cursor()
                 for table in ("auth_kv", "ItemTable", "storage"):
                     try:
-                        cursor.execute(f"SELECT value FROM {table} WHERE key IN ('kirocli:odic:token', 'kirocli:oidc:token', 'kiro:auth:token') LIMIT 1")
+                        cursor.execute(f"SELECT value FROM {table} WHERE key IN ('kirocli:odic:token', 'kirocli:oidc:token', 'kiro:auth:token') LIMIT 1")  # nosec B608 - table is from a hardcoded tuple, never request data
                         row = cursor.fetchone()
                         if row and row[0]:
                             t_data = json.loads(row[0])
