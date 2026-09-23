@@ -120,7 +120,9 @@ def cmd_route(args: argparse.Namespace) -> None:
         if expl.get("recommended_tools"):
             print(f"Recommended Tools:    {', '.join(expl['recommended_tools'])}")
         if expl.get("recommended_knowledge"):
-            print(f"Recommended Docs:     {', '.join(expl['recommended_knowledge'][:3])}")
+            docs = [str(d) for d in expl["recommended_knowledge"][:3] if d]
+            if docs:
+                print(f"Recommended Docs:     {', '.join(docs)}")
         if expl.get("recommended_ecc_skills"):
             print(f"Recommended ECC:      {', '.join(expl['recommended_ecc_skills'])}")
         if expl.get("ecc_relevance_rationale"):
@@ -487,22 +489,62 @@ def cmd_worktree(args: argparse.Namespace) -> None:
             sys.exit(1)
 
     elif args.subcommand == "recover":
+        # WorktreeManager.recover() scans every record; it takes no task_id.
         try:
-            record = wt_mgr.recover(task_id=args.task_id)
-            print(f"Recovered worktree for task {args.task_id}:")
-            print(f"  Branch: {record.branch}")
-            print(f"  Status: {record.status.value}")
+            recovered = wt_mgr.recover()
         except Exception as exc:
             print(f"Failed to recover sandbox: {exc}")
             sys.exit(1)
+        record = next((r for r in recovered if r.task_id == args.task_id), None) or wt_mgr.get(args.task_id)
+        if record is None:
+            print(f"Error: No worktree found for task {args.task_id}.")
+            sys.exit(1)
+        print(f"Recovered worktree for task {args.task_id}:")
+        print(f"  Branch: {record.branch}")
+        print(f"  Status: {record.status.value if hasattr(record.status, 'value') else record.status}")
 
     elif args.subcommand == "cleanup":
-        if not args.confirm:
+        if not getattr(args, "confirm", False):
             print(f"Error: Bulk cleanup removes stale sandbox worktrees.")
             print(f"Re-run with '--confirm' to cleanup: python3 scripts/brain.py worktree cleanup --confirm")
             sys.exit(1)
-        cleaned = wt_mgr.cleanup(max_age_hours=args.max_age_hours)
+        cleaned = _cleanup_stale_worktrees(wt_mgr, args.max_age_hours)
         print(f"Cleaned up {len(cleaned)} stale worktree sandboxes.")
+
+
+#: Worktree states that hold no pending work, so their directories may be removed.
+#: PENDING_REVIEW / APPROVED / ACTIVE / CREATED are never touched by bulk cleanup.
+_STALE_WORKTREE_STATES = ("APPLIED", "REJECTED", "FAILED", "ORPHANED")
+
+
+def _cleanup_stale_worktrees(wt_mgr: Any, max_age_hours: int) -> list[str]:
+    """Remove worktree directories for finished records older than max_age_hours.
+
+    WorktreeManager.cleanup() removes exactly one task's worktree; this applies
+    it to every stale record. Branches are kept so no commit is lost.
+    """
+    import datetime as _dt
+
+    cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=max_age_hours)
+    records = wt_mgr.status()
+    if not isinstance(records, list):
+        records = [records] if records else []
+    cleaned: list[str] = []
+    for rec in records:
+        state = rec.status.value if hasattr(rec.status, "value") else str(rec.status)
+        if state not in _STALE_WORKTREE_STATES:
+            continue
+        try:
+            updated = _dt.datetime.fromisoformat(rec.updated_at)
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=_dt.timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if updated > cutoff:
+            continue
+        if wt_mgr.cleanup(rec.task_id):
+            cleaned.append(rec.task_id)
+    return cleaned
 
 
 def _print_job_result(job: Job) -> None:
@@ -2037,6 +2079,7 @@ def main() -> None:
 
     p_wt_cleanup = p_wt_sub.add_parser("cleanup", help="Cleanup stale worktrees")
     p_wt_cleanup.add_argument("--max-age-hours", type=int, default=24, help="Max age in hours (default 24)")
+    p_wt_cleanup.add_argument("--confirm", action="store_true", help="Confirm removing stale worktree sandboxes")
     p_bench = sub.add_parser("benchmark", help="Run master optimization benchmark suite (Tests A-G)")
     p_bench.add_argument("--json", action="store_true", help="Emit JSON output")
 
@@ -2383,7 +2426,15 @@ def main() -> None:
         "audit": cmd_audit,
         "validate": cmd_validate,
     }
-    handlers[args.command](args)
+    try:
+        handlers[args.command](args)
+    except RuntimeError as exc:
+        # Routing-driven commands raise RuntimeError when no agent is registered
+        # or healthy (e.g. a fresh machine). Report it cleanly, not as a traceback.
+        if args.command not in ("route", "plan", "continue"):
+            raise
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
@@ -2548,7 +2599,9 @@ def cmd_validate(args: argparse.Namespace) -> None:
 
     # --- Credential security --------------------------------------------
     try:
-        audit_log = PROJECT_ROOT / "runtime" / "logs" / "audit.jsonl"
+        # Scan the ledger AuditLogger actually writes (runtime/audit/, not runtime/logs/).
+        from brain.governance.audit_logger import DEFAULT_AUDIT_LOG_PATH
+        audit_log = DEFAULT_AUDIT_LOG_PATH
         blob = ""
         if audit_log.exists():
             blob = audit_log.read_text(encoding="utf-8", errors="ignore").lower()

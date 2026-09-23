@@ -1064,6 +1064,12 @@ class SmartRouter:
             recommended_steering = [s.get("title") for s in ctx.relevant_steering if isinstance(s, dict)]
         except Exception as e:
             logger.debug("Failed building recommendation context in explain_routing: %s", e)
+        # Context entries without an id/name/title yield None; consumers join
+        # these lists as strings (`brain route explain` crashed on a None).
+        recommended_mcps = [str(x) for x in recommended_mcps if x]
+        recommended_tools = [str(x) for x in recommended_tools if x]
+        recommended_docs = [str(x) for x in recommended_docs if x]
+        recommended_steering = [str(x) for x in recommended_steering if x]
 
         affinity_boost = 0.0
         if self._performance_registry:

@@ -206,8 +206,23 @@ class HandoffManager:
         if filename == "current.json":
             rec = self.get_current_record()
             return rec.to_dict() if rec else None
-        target = self._archive_dir / filename
-        if target.is_file() and target.name.endswith(".json"):
+        # The name reaches here from an HTTP query string, so it must address a
+        # file directly inside the archive: no separators, no "..", and the
+        # resolved path must stay under the archive (symlinks included).
+        if (
+            not filename
+            or "/" in filename
+            or "\\" in filename
+            or "\x00" in filename
+            or filename in (".", "..")
+            or not filename.endswith(".json")
+        ):
+            return None
+        archive_root = self._archive_dir.resolve()
+        target = (archive_root / filename).resolve()
+        if not target.is_relative_to(archive_root) or target.parent != archive_root:
+            return None
+        if target.is_file():
             try:
                 return json.loads(target.read_text(encoding="utf-8"))
             except Exception:

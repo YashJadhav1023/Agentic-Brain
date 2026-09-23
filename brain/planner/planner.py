@@ -108,9 +108,24 @@ class Planner:
             # 2. Decompose into PlanSteps
             steps = self.decomposer.decompose(task)
 
-            # 3. Route and attach capabilities to each step
+            # 3. Route and attach capabilities to each step. The decomposer's
+            # agent is only a hint: pinning it made plan creation crash with
+            # "Requested agent 'antigravity' is not registered" on any machine
+            # without that agent (a supported fresh install). Fall back to open
+            # routing, and if no agent is available at all keep the step
+            # unrouted rather than failing the whole plan.
+            routing_warnings: List[str] = []
             for s in steps:
-                decision = self.router.route(s.description or s.title, preferred_agent=s.agent)
+                text = s.description or s.title
+                try:
+                    decision = self.router.route(text, preferred_agent=s.agent)
+                except RuntimeError as pinned_err:
+                    try:
+                        decision = self.router.route(text)
+                    except RuntimeError as open_err:
+                        routing_warnings.append(f"{s.step_id}: {open_err}")
+                        continue
+                    routing_warnings.append(f"{s.step_id}: {pinned_err}; re-routed to {decision.agent_id}")
                 s.agent = decision.agent_id
                 s.account = decision.account_id
                 s.provider = decision.provider_id
@@ -136,6 +151,7 @@ class Planner:
                 metadata={
                     "complexity": cls_res.suggested_complexity.value,
                     "keywords": cls_res.keywords_matched,
+                    **({"routing_warnings": routing_warnings} if routing_warnings else {}),
                 }
             )
 

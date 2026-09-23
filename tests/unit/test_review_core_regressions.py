@@ -254,5 +254,182 @@ class PersistenceRegressions(unittest.TestCase):
             self.assertEqual(oct(os.stat(path).st_mode & 0o777), oct(0o600))
 
 
+
+class HandoffTraversalRegressions(unittest.TestCase):
+    def test_record_lookup_cannot_escape_archive(self):
+        from handoffs.handoff_manager import HandoffManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "handoffs"
+            mgr = HandoffManager(root_dir=root)
+            (Path(tmp) / "config").mkdir()
+            (Path(tmp) / "config" / "providers.json").write_text('{"secret": 1}', encoding="utf-8")
+            (root / "sibling.json").write_text('{"x": 1}', encoding="utf-8")
+            for name in ("../../config/providers.json", "../sibling.json", "/etc/hostname.json",
+                         "..\\sibling.json", ".."):
+                self.assertIsNone(mgr.get_record_by_name(name), name)
+
+            (root / "archive" / "handoff_1.json").write_text('{"ok": true}', encoding="utf-8")
+            self.assertEqual(mgr.get_record_by_name("handoff_1.json"), {"ok": True})
+
+    def test_symlink_out_of_archive_is_rejected(self):
+        from handoffs.handoff_manager import HandoffManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "handoffs"
+            mgr = HandoffManager(root_dir=root)
+            outside = Path(tmp) / "outside.json"
+            outside.write_text('{"leak": 1}', encoding="utf-8")
+            (root / "archive" / "link.json").symlink_to(outside)
+            self.assertIsNone(mgr.get_record_by_name("link.json"))
+
+
+class CliCrashRegressions(unittest.TestCase):
+    def _run_main(self, cli, argv):
+        out, err = io.StringIO(), io.StringIO()
+        code = 0
+        with mock.patch.object(cli.sys, "argv", ["brain.py", *argv]), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                cli.main()
+            except SystemExit as exc:
+                code = exc.code
+        return code, out.getvalue(), err.getvalue()
+
+    def test_route_explain_tolerates_none_recommendations(self):
+        cli = _load_brain_cli()
+        router = mock.MagicMock()
+        router.explain_routing.return_value = {
+            "task": "t", "selected_agent": "a", "selected_account": "acc",
+            "selected_provider": "p", "selected_model": "m", "task_type": "General",
+            "complexity": "standard", "total_score": 1.0, "reason": "r",
+            "recommended_knowledge": [None, "Doc A", None],
+        }
+        with mock.patch.object(cli, "create_default_registry"), \
+                mock.patch.object(cli, "SmartRouter", return_value=router):
+            code, out, _ = self._run_main(cli, ["route", "explain", "fix the build"])
+        self.assertEqual(code, 0)
+        self.assertIn("Recommended Docs:     Doc A", out)
+
+    def test_explain_routing_drops_none_entries_at_source(self):
+        from brain.router.smart_router import SmartRouter
+
+        with tempfile.TemporaryDirectory() as tmp:
+            router = SmartRouter(registry=mock.MagicMock(), history_file=Path(tmp) / "h.jsonl")
+            decision = mock.MagicMock(agent_id="a", task_type="General", fallback_chain=[], candidates=[])
+            ctx = mock.MagicMock(relevant_mcps=[{"x": 1}], relevant_tools=[{}],
+                                 relevant_docs=[{"path": "no-title"}, {"title": "Doc"}],
+                                 relevant_steering=[{}])
+            with mock.patch.object(router, "route", return_value=decision), \
+                    mock.patch("brain.context.context_builder.ContextBuilder.preview_context", return_value=ctx), \
+                    mock.patch("brain.context.context_builder.ContextBuilder.__init__", return_value=None):
+                expl = router.explain_routing("task")
+        self.assertEqual(expl["recommended_knowledge"], ["Doc"])
+        self.assertEqual(expl["recommended_mcps"], [])
+        self.assertEqual(expl["recommended_tools"], [])
+
+    def test_worktree_cleanup_without_confirm_is_a_clean_refusal(self):
+        cli = _load_brain_cli()
+        with mock.patch.object(cli, "Orchestrator") as orch:
+            code, out, _ = self._run_main(cli, ["worktree", "cleanup"])
+        self.assertEqual(code, 1)
+        self.assertIn("--confirm", out)
+        orch.return_value.worktrees.cleanup.assert_not_called()
+
+    def test_worktree_cleanup_confirm_removes_only_stale_finished_sandboxes(self):
+        import datetime as dt
+
+        cli = _load_brain_cli()
+        old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48)).isoformat()
+        new = dt.datetime.now(dt.timezone.utc).isoformat()
+        recs = [
+            mock.MagicMock(task_id="old-rejected", status=mock.MagicMock(value="REJECTED"), updated_at=old),
+            mock.MagicMock(task_id="old-review", status=mock.MagicMock(value="PENDING_REVIEW"), updated_at=old),
+            mock.MagicMock(task_id="new-rejected", status=mock.MagicMock(value="REJECTED"), updated_at=new),
+        ]
+        with mock.patch.object(cli, "Orchestrator") as orch:
+            wt = orch.return_value.worktrees
+            wt.status.return_value = recs
+            wt.cleanup.return_value = True
+            code, out, _ = self._run_main(cli, ["worktree", "cleanup", "--confirm", "--max-age-hours", "24"])
+        self.assertEqual(code, 0)
+        wt.cleanup.assert_called_once_with("old-rejected")
+        self.assertIn("Cleaned up 1", out)
+
+    def test_route_with_no_agents_exits_cleanly(self):
+        cli = _load_brain_cli()
+        router = mock.MagicMock()
+        router.route.side_effect = RuntimeError("No healthy agents available in ProviderRegistry")
+        with mock.patch.object(cli, "create_default_registry"), \
+                mock.patch.object(cli, "SmartRouter", return_value=router):
+            code, _, err = self._run_main(cli, ["route", "fix the build"])
+        self.assertEqual(code, 1)
+        self.assertIn("Error: No healthy agents", err)
+
+
+class PlannerNoAgentRegressions(unittest.TestCase):
+    def _planner(self, tmp, router):
+        import threading
+        from brain.planner.planner import Planner
+        from brain.planner.task_decomposer import TaskDecomposer
+        from brain.router.classification import TaskClassifier
+
+        planner = Planner.__new__(Planner)
+        planner._lock = threading.RLock()
+        planner.router = router
+        planner.decomposer = TaskDecomposer(mock.MagicMock())
+        planner.classifier = TaskClassifier()
+        planner.storage_dir = Path(tmp)
+        planner._plans = {}
+        return planner
+
+    def test_unregistered_default_agent_falls_back_to_open_routing(self):
+        decision = mock.MagicMock(agent_id="kiro-cli", account_id="k", provider_id="kiro", model="m")
+
+        def route(text, preferred_agent=None):
+            if preferred_agent:
+                raise RuntimeError(f"Requested agent '{preferred_agent}' is not registered.")
+            return decision
+
+        router = mock.MagicMock()
+        router.route.side_effect = route
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = self._planner(tmp, router).create_plan("Summarise the architecture document")
+        self.assertTrue(plan.steps)
+        self.assertTrue(all(s.agent == "kiro-cli" for s in plan.steps))
+
+    def test_no_agents_at_all_still_creates_a_plan(self):
+        router = mock.MagicMock()
+        router.route.side_effect = RuntimeError("No healthy agents available in ProviderRegistry")
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = self._planner(tmp, router).create_plan("Summarise the architecture document")
+        self.assertTrue(plan.steps)
+        self.assertIn("routing_warnings", plan.metadata)
+
+
+class AuditPathRegressions(unittest.TestCase):
+    def test_default_audit_path_is_repo_anchored_not_cwd_relative(self):
+        from brain.governance.audit_logger import AuditLogger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prev = os.getcwd()
+            os.chdir(tmp)
+            try:
+                logger = AuditLogger()
+            finally:
+                os.chdir(prev)
+            self.assertTrue(logger.log_path.is_absolute())
+            self.assertEqual(logger.log_path, PROJECT_ROOT / "runtime" / "audit" / "audit.jsonl")
+            self.assertFalse((Path(tmp) / "runtime").exists())
+
+    def test_validate_scans_the_ledger_audit_logger_writes(self):
+        import inspect
+
+        cli = _load_brain_cli()
+        src = inspect.getsource(cli.cmd_validate)
+        self.assertNotIn('"runtime" / "logs" / "audit.jsonl"', src)
+        self.assertIn("DEFAULT_AUDIT_LOG_PATH", src)
+
+
 if __name__ == "__main__":
     unittest.main()
