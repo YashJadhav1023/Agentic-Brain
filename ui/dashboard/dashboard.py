@@ -67,7 +67,7 @@ from providers.api.openai_compatible import OpenAICompatibleProvider
 from providers.base import ProviderType
 from providers.registry.account_registry import Account, AccountStatus, AuthenticationType
 from providers.registry.bootstrap import create_default_registry, sync_registry_with_config
-from providers.registry.config import resolve_config_path
+from providers.registry.config import load_config, resolve_config_path
 from providers.registry.credential_manager import SecretRedactor, get_credential_manager
 from providers.registry.model_registry import ModelMetadata
 from tasks.manager import Task, TaskManager, TaskPriority, TaskStatus
@@ -89,6 +89,21 @@ def brain_dir() -> Path:
     return Path(os.environ.get("BRAIN_DIR", "")).expanduser() if os.environ.get("BRAIN_DIR") \
         else Path.home() / "agentic-brain"
 
+
+
+def _js_literal(value: Any) -> str:
+    """Encode a value as a JS literal that is safe inside an inline <script>.
+
+    json.dumps alone leaves ``</script>`` intact, and html.escape does not stop
+    a backslash from escaping the closing quote, so neither is safe for
+    attacker-influenced strings (OAuth callback query parameters, emails).
+    """
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
 
 
 def sanitize_account_id(account_id: str) -> str:
@@ -512,6 +527,21 @@ class WizardSession:
         return redactor.redact_dict(d)
 
 
+def _is_trusted_local_file(p: Path) -> bool:
+    """True if `p` is owned by this user and not world-writable.
+
+    One OAuth-config fallback lives under world-writable /tmp, where any other
+    local user could plant a file that swaps in their own OAuth client.
+    """
+    try:
+        st = p.stat()
+    except OSError:
+        return False
+    if hasattr(os, "getuid") and st.st_uid != os.getuid():
+        return False
+    return not (st.st_mode & 0o002)
+
+
 def _get_antigravity_oauth_credentials() -> tuple[str, str]:
     """Retrieve Antigravity Google OAuth Client ID and Secret dynamically."""
     cid = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_ID", "").strip()
@@ -531,7 +561,7 @@ def _get_antigravity_oauth_credentials() -> tuple[str, str]:
             Path("/tmp/omniroute/src/lib/oauth/providers/antigravity.ts"),
         ]
         for p in paths:
-            if p.is_file():
+            if p.is_file() and _is_trusted_local_file(p):
                 try:
                     if p.suffix == ".json":
                         d = json.loads(p.read_text(encoding="utf-8"))
@@ -1015,7 +1045,7 @@ class WizardManager:
             try:
                 get_credential_manager().store(cred_ref, token_val)
             except Exception as exc:
-                raise WizardError(f"Failed to store credential securely: {exc}", AccountLifecycleState.CONFIG_ERROR)
+                raise WizardError(f"Failed to store credential securely: {exc}", AccountLifecycleState.CONFIG_ERROR) from None
             sess.credential_reference = cred_ref
             if sess.account is not None:
                 sess.account.credential_reference = cred_ref
@@ -1171,9 +1201,9 @@ class WizardManager:
             raise
         except ValueError as exc:
             # e.g. a protected-profile guard — treat as auth failure with message.
-            raise WizardError(f"Authentication setup rejected: {exc}", AccountLifecycleState.AUTH_FAILED)
+            raise WizardError(f"Authentication setup rejected: {exc}", AccountLifecycleState.AUTH_FAILED) from None
         except Exception as exc:
-            raise WizardError(f"Authentication failed: {exc}", AccountLifecycleState.AUTH_FAILED)
+            raise WizardError(f"Authentication failed: {exc}", AccountLifecycleState.AUTH_FAILED) from None
 
         self._transition(sess, AccountLifecycleState.AUTHENTICATED, reason="Authenticated")
         wizard_event_stream.emit(
@@ -1799,6 +1829,25 @@ def is_allowed_origin(origin: str | None) -> bool:
 ALLOWED_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
+def is_allowed_host_header(host: str | None) -> bool:
+    """Reject non-loopback Host headers (DNS-rebinding defence).
+
+    A rebinding page (``http://attacker.example:3333`` re-resolved to 127.0.0.1)
+    is same-origin to the browser, so its GETs carry no Origin header and would
+    otherwise be able to read the public ``/api/token`` handshake. Browsers
+    always send the page's own hostname in ``Host``, so pinning it to loopback
+    closes that path. A missing Host (raw HTTP/1.0 client) cannot come from a
+    browser and is allowed.
+    """
+    if host is None:
+        return True
+    try:
+        hostname = urllib.parse.urlsplit(f"//{host.strip()}").hostname
+    except ValueError:
+        return False
+    return hostname in ALLOWED_LOOPBACK_HOSTS
+
+
 class SecurityError(RuntimeError):
     """Raised when a local boundary or security invariant is violated."""
 
@@ -1813,6 +1862,11 @@ def validate_host_binding(host: str) -> str:
     return host
 
 
+# Upper bound for JSON request bodies. Every legitimate payload (task
+# instructions, memory notes, wizard config) is far smaller; without a cap a
+# single request could make the server buffer an arbitrary Content-Length.
+MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024
+
 PUBLIC_GET_PATHS = frozenset({
     "/",
     # Browsers request /favicon.ico unconditionally and without the Authorization
@@ -1824,7 +1878,9 @@ PUBLIC_GET_PATHS = frozenset({
     "/api/status",
     "/api/token",
     "/api/oauth/cline/callback",
-    "/api/oauth/kiro/auto-import",
+    # /api/oauth/kiro/auto-import is deliberately NOT public: it is an API call
+    # made by the authenticated UI (not a browser redirect target), and it
+    # spawns `kiro-cli whoami` and returns the signed-in email / SSO start URL.
 })
 
 
@@ -1834,7 +1890,7 @@ def is_public_path(path: str) -> bool:
         return True
     if path.startswith("/static/"):
         return True
-    if path.startswith("/api/oauth/") and (path.endswith("/callback") or path.endswith("/auto-import")):
+    if path.startswith("/api/oauth/") and path.endswith("/callback"):
         return True
     if path.startswith("/api/oauth/callback"):
         return True
@@ -1876,8 +1932,10 @@ class MissionControlHandler(BaseHTTPRequestHandler):
 
     def _check_origin(self) -> bool:
         origin = self.headers.get("Origin")
-        if origin and not is_allowed_origin(origin):
-            out = json.dumps({"error": "Forbidden", "message": "Disallowed cross-origin request"}).encode("utf-8")
+        bad_host = not is_allowed_host_header(self.headers.get("Host"))
+        if bad_host or (origin and not is_allowed_origin(origin)):
+            message = "Disallowed Host header" if bad_host else "Disallowed cross-origin request"
+            out = json.dumps({"error": "Forbidden", "message": message}).encode("utf-8")
             self.send_response(403)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -1944,6 +2002,37 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 pass
             return False
 
+    def _read_json_body(self) -> dict[str, Any] | None:
+        """Read and parse a bounded JSON request body.
+
+        Returns the parsed object (``{}`` for an empty, malformed or non-object
+        body, preserving the historical lenient behaviour), or ``None`` after
+        answering 400/413 itself when Content-Length is invalid or too large.
+        """
+        raw_len = self.headers.get("Content-Length", "0") or "0"
+        try:
+            length = int(raw_len)
+        except ValueError:
+            length = -1
+        if length < 0:
+            self.close_connection = True
+            self._serve_json({"error": "Invalid Content-Length"}, status=400)
+            return None
+        if length > MAX_REQUEST_BODY_BYTES:
+            self.close_connection = True
+            self._serve_json(
+                {"error": "Payload Too Large", "max_bytes": MAX_REQUEST_BODY_BYTES},
+                status=413,
+            )
+            return None
+        if length == 0:
+            return {}
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
     def _serve_json(self, data: Any, status: int = 200, redact: bool = True) -> None:
         # Phase 10: Apply SecretRedactor to all API response payloads.
         #
@@ -1970,7 +2059,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
     def _serve_static(self, path: str) -> None:
         rel = path.replace("/static/", "").lstrip("/")
         file_path = (STATIC_DIR / rel).resolve()
-        if not str(file_path).startswith(str(STATIC_DIR)):
+        # is_relative_to, not a string prefix test: "static_x/..." shares the
+        # "static" prefix but lies outside STATIC_DIR.
+        if not file_path.is_relative_to(STATIC_DIR):
             self.send_response(403)
             self._apply_security_headers()
             self.end_headers()
@@ -2645,7 +2736,13 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         elif path == "/api/handoff/record":
             query = self.path.split("?")[1] if "?" in self.path else ""
             params = urllib.parse.parse_qs(query)
-            fname = params.get("filename", ["current.json"])[0]
+            # The UI historically sent `name=`; accept both spellings.
+            fname = (params.get("filename") or params.get("name") or ["current.json"])[0]
+            # get_record_by_name joins this onto the archive dir, so a name with
+            # a separator or leading dot could read any *.json on disk.
+            if "/" in fname or "\\" in fname or fname.startswith(".") or "\x00" in fname:
+                self._serve_json({"error": "Invalid handoff record name"}, status=400)
+                return
             rec = handoff_manager.get_record_by_name(fname)
             self._serve_json({"record": rec})
         elif path in ("/api/metrics/tokens", "/api/tokens"):
@@ -3067,12 +3164,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             return
 
         path = self.path.split("?")[0]
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
-        try:
-            payload = json.loads(body)
-        except Exception:
-            payload = {}
+        payload = self._read_json_body()
+        if payload is None:
+            return
 
         # 1. Unauthenticated endpoints
         if path == "/api/route":
@@ -3834,12 +3928,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         if not self._check_origin():
             return
         path = self.path.split("?")[0]
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
-        try:
-            payload = json.loads(body)
-        except Exception:
-            payload = {}
+        payload = self._read_json_body()
+        if payload is None:
+            return
 
         if path.startswith("/api/accounts/"):
             if not self._verify_auth(path):
@@ -4123,11 +4214,11 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
   </div>
   <script>
     if (window.opener) {{
-      try {{ window.opener.postMessage({{ type: 'google_oauth_complete', wizard_id: '{html.escape(state)}', account_id: '{html.escape(sess.account_id)}', email: '{html.escape(user_email)}' }}, '*'); }} catch (e) {{}}
+      try {{ window.opener.postMessage({{ type: 'google_oauth_complete', wizard_id: {_js_literal(state)}, account_id: {_js_literal(sess.account_id)}, email: {_js_literal(user_email)} }}, '*'); }} catch (e) {{}}
       setTimeout(() => {{ window.close(); }}, 1200);
     }} else {{
       setTimeout(() => {{
-        window.location.href = '/?oauth_complete=1&account_id={urllib.parse.quote(sess.account_id)}';
+        window.location.href = {_js_literal('/?oauth_complete=1&account_id=' + urllib.parse.quote(sess.account_id))};
       }}, 1200);
     }}
   </script>
@@ -4405,9 +4496,9 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
       try {{
         window.opener.postMessage({{
           type: 'cline_oauth_complete',
-          email: {json.dumps(user_email)},
-          account_id: {json.dumps(account_id)},
-          wizard_id: {json.dumps(state_param)}
+          email: {_js_literal(user_email)},
+          account_id: {_js_literal(account_id)},
+          wizard_id: {_js_literal(state_param)}
         }}, '*');
         setTimeout(function() {{ window.close(); }}, 1200);
       }} catch(e) {{}}
@@ -4529,7 +4620,7 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
                 cursor = conn.cursor()
                 for table in ("auth_kv", "ItemTable", "storage"):
                     try:
-                        cursor.execute(f"SELECT value FROM {table} WHERE key IN ('kirocli:odic:token', 'kirocli:oidc:token', 'kiro:auth:token') LIMIT 1")
+                        cursor.execute(f"SELECT value FROM {table} WHERE key IN ('kirocli:odic:token', 'kirocli:oidc:token', 'kiro:auth:token') LIMIT 1")  # nosec B608 - table is from a hardcoded tuple, never request data
                         row = cursor.fetchone()
                         if row and row[0]:
                             t_data = json.loads(row[0])
