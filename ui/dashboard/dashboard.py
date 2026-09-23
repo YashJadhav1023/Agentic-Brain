@@ -27,6 +27,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import functools
 import threading
 import time
 import urllib.parse
@@ -3403,7 +3404,23 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         elif path in ("/api/execute", "/api/task/execute"):
             _invalidate_system_status_cache()
             task_id = payload.get("task_id")
-            threading.Thread(target=orchestrator.execute_next, daemon=True).start()
+            if task_id:
+                # Run the task the operator asked for, not whatever is next in
+                # the queue. execute_task still enforces the approval gate.
+                task = task_manager.get_task(str(task_id))
+                if task is None:
+                    self._serve_json({"error": f"Task '{task_id}' not found"}, status=404)
+                    return
+                if task.status != TaskStatus.READY:
+                    self._serve_json(
+                        {"error": f"Task '{task_id}' is {task.status.value}, not READY"},
+                        status=409,
+                    )
+                    return
+                target = functools.partial(orchestrator.execute_task_now, task)
+            else:
+                target = orchestrator.execute_next
+            threading.Thread(target=target, daemon=True).start()
             self._serve_json({
                 "status": "executing",
                 "task_id": task_id,

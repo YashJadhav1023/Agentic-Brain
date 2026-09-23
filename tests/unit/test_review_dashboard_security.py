@@ -495,3 +495,51 @@ class TestServerBacklog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestExecuteRunsTheRequestedTask(_ServerMixin, unittest.TestCase):
+    """"Run now" on one task must run that task, not the next one in the queue."""
+
+    def _patch(self, task):
+        started = []
+        getter = mock.patch.object(dashboard.task_manager, "get_task", return_value=task)
+        now = mock.patch.object(dashboard.orchestrator, "execute_task_now", side_effect=started.append)
+        nxt = mock.patch.object(dashboard.orchestrator, "execute_next", side_effect=lambda: started.append("NEXT"))
+        for p in (getter, now, nxt):
+            p.start()
+            self.addCleanup(p.stop)
+        return started
+
+    def _wait(self, started):
+        for _ in range(100):
+            if started:
+                return
+            threading.Event().wait(0.02)
+
+    def test_task_id_runs_that_task(self):
+        task = mock.Mock(task_id="task-abc", status=dashboard.TaskStatus.READY)
+        started = self._patch(task)
+        status, body = _post_json(self, "/api/execute", {"task_id": "task-abc"})
+        self.assertEqual(status, 200, body)
+        self._wait(started)
+        self.assertEqual(started, [task])
+
+    def test_unknown_task_is_404_and_nothing_runs(self):
+        started = self._patch(None)
+        status, _ = _post_json(self, "/api/execute", {"task_id": "task-missing"})
+        self.assertEqual(status, 404)
+        self.assertEqual(started, [])
+
+    def test_non_ready_task_is_409_and_nothing_runs(self):
+        task = mock.Mock(task_id="task-done", status=dashboard.TaskStatus.COMPLETED)
+        started = self._patch(task)
+        status, _ = _post_json(self, "/api/execute", {"task_id": "task-done"})
+        self.assertEqual(status, 409)
+        self.assertEqual(started, [])
+
+    def test_no_task_id_still_runs_the_queue(self):
+        started = self._patch(None)
+        status, _ = _post_json(self, "/api/execute", {})
+        self.assertEqual(status, 200)
+        self._wait(started)
+        self.assertEqual(started, ["NEXT"])
