@@ -745,7 +745,14 @@ class AntigravityAdapter:
     def load_from_config(
         cls, config_path: Path | str | None = None
     ) -> list[AntigravityAccountAdapter]:
-        path = Path(config_path or DEFAULT_CONFIG_PATH)
+        if config_path:
+            path = Path(config_path)
+        else:
+            # Honour BRAIN_PROVIDERS_CONFIG like every other config reader, so a
+            # test or sandbox never silently falls back to the live file.
+            from providers.registry.config import resolve_config_path
+
+            path = resolve_config_path()
         if not path.is_file():
             raise FileNotFoundError(
                 f"Provider configuration not found: {path}. Antigravity accounts are "
@@ -780,4 +787,6 @@ class AntigravityAdapter:
         for adapter in cls.load_from_config(config_path):
             if adapter.agent_id == agent_id:
                 return adapter
-        raise RuntimeError(f"{agent_id} is not defined in {config_path or DEFAULT_CONFIG_PATH}")
+        from providers.registry.config import resolve_config_path
+
+        raise RuntimeError(f"{agent_id} is not defined in {config_path or resolve_config_path()}")
