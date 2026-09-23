@@ -120,7 +120,7 @@ class TestPhase20MissionBrainE2E(unittest.TestCase):
         kernel, so a literal PID can both fail spuriously and match the wrong
         process. See tests/support/gui_guard.py.
         """
-        from support.gui_guard import describe_gui, find_gui_processes
+        from tests.support.gui_guard import describe_gui, find_gui_processes
 
         procs = find_gui_processes()
         if not procs:

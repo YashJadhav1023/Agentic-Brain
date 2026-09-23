@@ -338,16 +338,40 @@ class TestWizardFailureHandling(_WizardDemoTestCase):
         status, body = self._post("/api/wizard/start", {"provider_id": "openai"})
         self.assertEqual(status, 400, body)
 
-    def test_a_duplicate_account_id_is_rejected_with_409(self):
+    def test_a_duplicate_account_id_never_reuses_the_existing_account(self):
+        """A second wizard for a taken id must not be able to touch the first.
+
+        Originally the wizard rejected a duplicate with 409. f97fc14 changed
+        ``/api/wizard/start`` to auto-increment the id instead ("OmniRoute
+        multi-account parity": ``foo`` -> ``foo-1``). The security property both
+        behaviours must keep is the same: the new session is never bound to the
+        existing account id, and the registered account is left untouched.
+        """
         wizard_id, _ = self._start()
         self._drive_to_ready(wizard_id)
-        self._step("register", wizard_id)
+        status, body = self._step("register", wizard_id)
+        self.assertEqual(status, 200, body)
+        registry = dashboard.registry.account_registry
+        original = registry.get_account(self.account_id)
+        self.assertIsNotNone(original)
+        original_state = original.lifecycle_state
 
         status, body = self._post(
             "/api/wizard/start",
             {"provider_id": self.provider_id, "account_id": self.account_id},
         )
-        self.assertEqual(status, 409, body)
+        self.assertIn(status, (201, 409), body)
+        if status == 201:
+            new_id = body["wizard"]["account_id"]
+            self.assertNotEqual(new_id, self.account_id, body)
+            self.assertTrue(new_id.startswith(self.account_id.rsplit("-", 1)[0]), new_id)
+            # Nothing is registered under the new id until that wizard registers.
+            self.assertIsNone(registry.get_account(new_id))
+            self._step("cancel", body["wizard"]["wizard_id"])
+
+        still = registry.get_account(self.account_id)
+        self.assertIs(still, original)
+        self.assertEqual(still.lifecycle_state, original_state)
 
     def test_an_unknown_wizard_session_is_a_404(self):
         status, body = self._step("configure", "wiz-doesnotexist", config={})
