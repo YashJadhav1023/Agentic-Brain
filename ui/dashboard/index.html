@@ -12,6 +12,7 @@
   <script src="/static/marked.min.js"></script>
   <script src="/static/force-graph.min.js"></script>
   <script src="/static/ui-kit.js"></script>
+  <script src="/static/portraitArt.js"></script>
   <script src="/static/office.js" defer></script>
   <script>
     tailwind.config = {
@@ -746,58 +747,111 @@
       <!-- 2. AGENTS & ACCOUNT REGISTRY TAB -->
       <!-- OFFICE: pixel-art floor of agents, tasks and routing. Logic in
            static/office.js (reads GET /api/office/state; demo when absent). -->
-      <section id="tab-office" data-tab="office" class="tab-pane hidden space-y-6"><div id="office"></div>
-        <header class="ui-page-header">
-          <div>
-            <h2 class="ui-page-title">Office</h2>
-            <p class="ui-page-desc">Every agent has a desk and every task is a paper card: it lands in the Inbox, the Router picks an agent and model, the agent works it at its desk, and it ends on the Done shelf or in Escalations.</p>
-          </div>
-          <div class="ops-toolbar">
-            <span id="office-status" class="ops-pill ops-pill-idle" role="status"><span class="ui-dot" aria-hidden="true"></span><span id="office-status-text">Connecting…</span></span>
-            <button type="button" id="office-motion-btn" class="ui-btn ui-btn-secondary" aria-pressed="false">
-              <i class="fa-solid fa-pause" aria-hidden="true"></i> Pause motion
-            </button>
-            <button type="button" id="office-refresh-btn" class="ui-btn ui-btn-secondary">
-              <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh
-            </button>
-          </div>
-        </header>
-
-        <div id="office-banner" class="office-banner" role="status" hidden></div>
-        <div id="office-stats" class="office-stats" aria-label="Floor summary"></div>
-
-        <div class="office-layout">
-          <div class="min-w-0">
-            <div id="office-stage" class="office-stage">
-              <canvas id="office-canvas" role="img" aria-label="Office floor: loading"></canvas>
-              <div id="office-hotspots" class="office-hotspots" role="group" aria-label="Agents and stations on the office floor"></div>
+      <section id="tab-office" data-tab="office" class="tab-pane hidden space-y-4">
+        <!-- Retro Dunder Mifflin Window Container -->
+        <div class="dunder-window">
+          <!-- Top Window Chrome / Header -->
+          <div class="dunder-titlebar">
+            <div class="dunder-dots">
+              <span class="dot dot-close"></span>
+              <span class="dot dot-min"></span>
+              <span class="dot dot-max"></span>
             </div>
-            <p class="office-hint">Click an agent, a card or a station for details. Keyboard: Tab through the floor, Enter to open.</p>
+            <div class="dunder-logo-badge">DUNDER MIFFLIN</div>
+            <div class="dunder-version">v0.3.9 auto mode on</div>
+            <div class="dunder-window-actions">
+              <button type="button" class="dunder-action-btn" id="dunder-theme-btn" title="Toggle theme"><i class="fa-regular fa-moon"></i></button>
+              <button type="button" class="dunder-action-btn" id="dunder-fs-btn" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
+              <button type="button" class="dunder-action-btn" id="dunder-settings-btn" title="Settings"><i class="fa-solid fa-gear"></i></button>
+            </div>
           </div>
-          <aside id="office-panel" class="ui-card office-panel" aria-live="polite" aria-label="Office details">
-            <div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading the office…</span></div>
-          </aside>
-        </div>
 
-        <details id="office-legend" class="ui-card office-legend">
-          <summary><i class="fa-solid fa-circle-info" aria-hidden="true"></i> How it works</summary>
-          <ol class="office-steps">
-            <li><b>Dispatch.</b> A task arrives in the <b>Inbox</b> as a paper card &mdash; from the Overview dispatch box, a job, or <code>brain swarm dispatch</code>.</li>
-            <li><b>Router.</b> The router reads the task and picks the agent that fits it best: terminal and test work, focused code edits, or multi-file architecture. Its choice, confidence and reason show on the router desk.</li>
-            <li><b>Model policy.</b> The task gets a capability tier (fast, balanced, advanced, frontier) that is mapped to a concrete model for that agent &mdash; the coloured chip.</li>
-            <li><b>Agent in a sandbox.</b> The card moves to the agent's desk. Headless agents work in a throwaway git worktree on a <code>brain/swarm/&lt;task&gt;</code> branch, so your own checkout is never touched. The thought bubble shows the task and model.</li>
-            <li><b>Result or escalation.</b> Finished work goes to the <b>Done</b> shelf for review. A blocked agent raises a red <b>!</b> and its card goes to <b>Escalations</b>. If an account hits a quota wall the card hops to another account's desk (failover). Tasks for the Antigravity IDE arrive as an <b>envelope</b> and wait for a person to work them.</li>
-            <li><b>Memory and handoff.</b> What the agent learned is filed in the <b>Memory</b> cabinet, and the <b>Handoff</b> board on the wall shows the current baton's next step, so any agent can pick up where the last one stopped.</li>
-          </ol>
-          <div class="office-key" aria-label="Key">
-            <span><span class="office-swatch" style="background:#06B6D4"></span>Working: typing, with a thought bubble</span>
-            <span><span class="office-swatch" style="background:#A1A1AA"></span>Idle: sitting at the desk</span>
-            <span><span class="office-swatch" style="background:#EF4444"></span>Blocked: red "!" above the head</span>
-            <span><span class="office-swatch" style="background:#52525B"></span>Offline: greyed out, laptop closed</span>
-            <span><span class="office-swatch" style="background:#F5F1E6;border-top:3px solid #22C55E"></span>Card edge: green done, red escalated, cyan queued</span>
-            <span><span class="office-swatch" style="background:#E7E0CF"></span>Envelope: delivered to the IDE, waiting for a person</span>
+          <!-- Main Split: Floor on Left, Command Center on Right -->
+          <div class="dunder-body">
+            <!-- Left: Office Floor Canvas Stage -->
+            <div class="dunder-floor-pane">
+              <div class="dunder-canvas-wrap">
+                <canvas id="dunder-canvas" width="544" height="352"></canvas>
+                <!-- Floating speech bubbles container -->
+                <div id="dunder-bubbles" class="dunder-bubbles-layer"></div>
+                <!-- Bottom-left memory indicator -->
+                <div class="dunder-memory-pill">
+                  <span class="pill-dot"></span> memory · minilm
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Command Center -->
+            <div class="dunder-command-center">
+              <!-- Top Boss Card -->
+              <div class="dunder-boss-card">
+                <div class="boss-avatar-box">
+                  <canvas id="boss-avatar" width="28" height="44"></canvas>
+                </div>
+                <div class="boss-info">
+                  <div class="boss-title">COMMAND CENTER</div>
+                  <div class="boss-status"><span class="status-sq idle"></span> idle &nbsp; Michael runs the floor</div>
+                </div>
+                <div class="boss-actions">
+                  <button type="button" class="dunder-btn auto-btn"><i class="fa-solid fa-play"></i> auto</button>
+                  <button type="button" class="dunder-btn ide-btn">&lt;&gt; IDE</button>
+                </div>
+              </div>
+
+              <!-- Command Center Tabs -->
+              <div class="dunder-tabs" role="tablist">
+                <button type="button" class="dunder-tab active" data-tab="terminal"><i class="fa-solid fa-terminal"></i> terminal</button>
+                <button type="button" class="dunder-tab" data-tab="monitor"><i class="fa-solid fa-desktop"></i> monitor</button>
+                <button type="button" class="dunder-tab" data-tab="tasks"><i class="fa-solid fa-check"></i> tasks</button>
+                <button type="button" class="dunder-tab" data-tab="ask"><i class="fa-solid fa-user"></i> ask me</button>
+                <button type="button" class="dunder-tab" data-tab="triggers"><i class="fa-regular fa-clock"></i> triggers</button>
+                <button type="button" class="dunder-tab" data-tab="memory"><i class="fa-solid fa-brain"></i> memory</button>
+                <button type="button" class="dunder-tab" data-tab="graph"><i class="fa-solid fa-circle-nodes"></i> graph</button>
+                <button type="button" class="dunder-tab" data-tab="activity"><i class="fa-solid fa-bolt"></i> activity</button>
+                <button type="button" class="dunder-tab" data-tab="commands"><i class="fa-solid fa-list-check"></i> commands</button>
+                <button type="button" class="dunder-tab" data-tab="workers"><i class="fa-solid fa-microchip"></i> workers</button>
+              </div>
+
+              <!-- Console / Terminal Area -->
+              <div class="dunder-console-wrap">
+                <div class="dunder-console-header">
+                  <span class="live-tag">● live · pty pty-god</span>
+                  <div class="font-zoom">
+                    <button type="button" class="zoom-btn" id="zoom-out">-</button>
+                    <span id="zoom-level">12px</span>
+                    <button type="button" class="zoom-btn" id="zoom-in">+</button>
+                  </div>
+                </div>
+                <div class="dunder-console" id="dunder-terminal-logs">
+                  <!-- Live stream logs appear here -->
+                </div>
+                <div class="dunder-console-footer">
+                  <div class="dunder-console-footer-top">
+                    <span class="ctx-meter" id="dunder-ctx">ctx 146k/1000k (15%)</span>
+                    <span class="rc-tag">/rc</span>
+                  </div>
+                  <div class="perm-tag">» bypass permissions on (shift+tab to cycle) · - for agents</div>
+                </div>
+              </div>
+
+              <!-- Queue Composer -->
+              <div class="dunder-queue-box">
+                <div class="queue-title">QUEUE</div>
+                <textarea id="dunder-queue-input" class="dunder-queue-input" placeholder="Message Michael..."></textarea>
+                <div class="queue-actions">
+                  <button type="button" class="dunder-btn file-btn"><i class="fa-solid fa-plus"></i> files</button>
+                  <button type="button" class="dunder-btn voice-btn"><i class="fa-solid fa-microphone"></i> voice</button>
+                  <button type="button" class="dunder-btn send-btn" id="dunder-send-btn">send <i class="fa-solid fa-arrow-right"></i></button>
+                </div>
+              </div>
+            </div>
           </div>
-        </details>
+
+          <!-- Bottom Agent Roster Strip -->
+          <div class="dunder-roster-strip" id="dunder-roster-strip">
+            <!-- Dynamic Agent Cards -->
+          </div>
+        </div>
 
         <div id="office-sr" class="sr-only" aria-live="polite"></div>
       </section>
@@ -2505,6 +2559,7 @@
       }
       return _nativeFetch(url, options);
     }
+    window.fetchWithAuth = fetchWithAuth;
 
     window.fetch = async function(resource, init) {
       const url = typeof resource === 'string' ? resource : (resource?.url || '');
@@ -2594,7 +2649,11 @@
       else if (tabId === 'routing') loadRoutingHistory();
       else if (tabId === 'tokens') loadTokensTelemetry();
       else if (tabId === 'worktrees') loadWorktrees();
-      else if (tabId === 'office') { /* static/office.js polls /api/office/state while visible */ }
+      else if (tabId === 'office') {
+        if (window.MCOffice && typeof window.MCOffice.wakeUp === 'function') {
+          window.MCOffice.wakeUp();
+        }
+      }
       else refreshData();
     }
 

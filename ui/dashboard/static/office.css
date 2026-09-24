@@ -1,101 +1,645 @@
-/* office.css — the "Office" floor view (paired with static/office.js).
-   Everything is prefixed `office-` so it cannot collide with ui-kit, the
-   scoped `ops-` styles or Tailwind utilities. Colours come from the ui-kit
-   tokens; the pixel palette itself lives in office.js. */
+/* office.css — Pixel-art Dunder Mifflin Office Floor & Command Center (munder-difflin theme) */
 
-/* position: relative keeps the absolutely positioned .sr-only live list inside
-   the shell's scroller; without it the list escaped to the document and made
-   the whole page (header included) scroll. */
-#tab-office { min-width: 0; position: relative; }
-
-.office-banner {
-  display: flex; align-items: flex-start; gap: .75rem;
-  padding: .75rem 1rem; border-radius: var(--ui-radius);
-  border: 1px solid rgba(245,158,11,.45); background: rgba(245,158,11,.08);
-  color: #FDE68A; font-size: .82rem; line-height: 1.5;
+#tab-office {
+  min-width: 0;
+  position: relative;
+  padding: 0.5rem 0;
 }
-.office-banner[hidden] { display: none; }
-.office-banner i { margin-top: .2rem; }
-.office-banner strong { color: #FEF3C7; }
-.office-banner-hint { display: block; color: var(--ui-text-muted); overflow-wrap: anywhere; }
 
-.office-stats { display: flex; flex-wrap: wrap; gap: .4rem; }
-.office-stat {
-  display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .6rem; border-radius: 999px;
-  font-size: .72rem; font-weight: 600; color: var(--ui-text-muted);
-  background: var(--ui-surface); border: 1px solid var(--ui-border); font-variant-numeric: tabular-nums;
+/* ── Retro Dunder Mifflin Window Frame ───────────────────────────────────── */
+.dunder-window {
+  background: #F4EAD9;
+  border: 2px solid #2B2118;
+  border-radius: 8px;
+  box-shadow: 0 4px 0 #2B2118, 0 12px 28px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  font-family: "JetBrains Mono", "Courier New", monospace;
+  color: #231C16;
+  display: flex;
+  flex-direction: column;
 }
-.office-stat b { color: var(--ui-text); font-weight: 700; }
-.office-stat .ui-dot { width: .45rem; height: .45rem; }
-.office-stat-note { color: var(--ui-text-faint); font-weight: 500; }
 
-.office-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
-/* The floor needs width to stay legible, so details sit beside it only on
-   very wide screens and below it otherwise. */
-@media (min-width: 1536px) { .office-layout { grid-template-columns: minmax(0, 1fr) 21rem; } }
+/* Top Window Titlebar */
+.dunder-titlebar {
+  background: #E9DEC9;
+  border-bottom: 2px solid #2B2118;
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+}
 
-.office-stage {
-  position: relative; width: 100%; overflow: hidden; line-height: 0;
-  border-radius: var(--ui-radius); border: 1px solid var(--ui-border); background: #14171D;
+.dunder-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.office-stage canvas {
-  display: block; width: 100%; height: auto; cursor: default;
-  image-rendering: pixelated; image-rendering: crisp-edges;
-  touch-action: manipulation;
+.dunder-dots .dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  display: inline-block;
 }
-/* Keyboard layer: one transparent button per agent desk and station. Mouse and
-   touch go straight through to the canvas (precise hit-testing there); Tab
-   lands on these and the focus ring outlines the spot on the floor. */
-.office-hotspots { position: absolute; inset: 0; pointer-events: none; }
-.office-hotspot {
-  position: absolute; pointer-events: none; padding: 0; margin: 0;
-  background: transparent; border: 0; border-radius: 6px; color: transparent;
-}
-.office-hotspot:focus-visible { outline: 2px solid #FDE047; outline-offset: 1px; box-shadow: 0 0 0 4px rgba(10,10,10,.65); }
-.office-hint { margin-top: .5rem; font-size: .75rem; color: var(--ui-text-faint); }
+.dot-close { background: #FF5F56; }
+.dot-min { background: #FFBD2E; }
+.dot-max { background: #27C93F; }
 
-.office-panel { min-width: 0; max-height: none; }
-@media (min-width: 1536px) { .office-panel { position: sticky; top: 1rem; max-height: calc(100vh - 7rem); overflow: auto; } }
-.office-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
-.office-eyebrow { font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ui-text-faint); }
-.office-panel-title { font-size: .98rem; font-weight: 700; color: #fff; line-height: 1.35; overflow-wrap: anywhere; margin-top: .15rem; }
-.office-badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .75rem; }
-.office-kv { display: grid; grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr); gap: .4rem .75rem; font-size: .8rem; }
-.office-kv dt { color: var(--ui-text-faint); font-weight: 600; }
-.office-kv dd { color: var(--ui-text); overflow-wrap: anywhere; min-width: 0; }
-.office-sub { margin: 1rem 0 .4rem; font-size: .7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ui-text-muted); }
-.office-p { font-size: .8rem; color: var(--ui-text-muted); line-height: 1.55; overflow-wrap: anywhere; }
-.office-list { display: flex; flex-direction: column; gap: .35rem; }
-.office-link {
-  display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%;
-  padding: .45rem .6rem; border-radius: 8px; text-align: left; font-size: .78rem; color: var(--ui-text);
-  background: var(--ui-bg); border: 1px solid var(--ui-border); cursor: pointer;
+.dunder-logo-badge {
+  background: #8B0000;
+  color: #FFFFFF;
+  font-family: "Georgia", serif;
+  font-weight: 900;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid #5A0000;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
 }
-.office-link:hover { border-color: var(--ui-border-strong); }
-.office-link-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.office-trail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; font-size: .76rem; }
-.office-trail li { padding: .35rem .55rem; border-radius: 6px; background: var(--ui-bg); border: 1px solid var(--ui-border); overflow-wrap: anywhere; }
-.office-flow-type { font-family: "JetBrains Mono", monospace; font-size: .7rem; color: #A5B4FC; }
-.office-conf { display: inline-block; vertical-align: middle; width: 5rem; height: .45rem; border-radius: 999px; background: var(--ui-surface-3); overflow: hidden; margin-right: .4rem; }
-.office-conf > span { display: block; height: 100%; background: var(--ui-busy); border-radius: 999px; }
-.office-tier { display: inline-flex; align-items: center; padding: .05rem .45rem; border-radius: 999px; font-size: .68rem; font-weight: 700; border: 1px solid currentColor; }
-.office-close { flex: none; }
 
-.office-legend > summary { cursor: pointer; font-size: .9rem; font-weight: 600; color: var(--ui-text); list-style: none; display: flex; align-items: center; gap: .5rem; }
-.office-legend > summary::-webkit-details-marker { display: none; }
-.office-legend > summary::after { content: "\25BE"; margin-left: auto; color: var(--ui-text-faint); transition: transform .15s; }
-.office-legend[open] > summary::after { transform: rotate(180deg); }
-.office-steps { margin: 1rem 0 0; padding-left: 1.25rem; list-style: decimal; display: grid; gap: .6rem; font-size: .82rem; color: var(--ui-text-muted); line-height: 1.55; }
-.office-steps b { color: var(--ui-text); }
-.office-steps code, .office-key code { font-family: "JetBrains Mono", monospace; font-size: .74rem; background: var(--ui-surface-2); padding: .05rem .3rem; border-radius: 4px; }
-.office-key { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: .45rem .9rem; margin-top: 1rem; font-size: .78rem; color: var(--ui-text-muted); }
-.office-key span { display: flex; align-items: center; gap: .5rem; }
-.office-swatch { flex: none; width: .9rem; height: .7rem; border-radius: 2px; border: 1px solid rgba(255,255,255,.25); }
-
-@media (max-width: 639px) {
-  #tab-office .ui-page-header > .ops-toolbar { width: 100%; }
-  #tab-office .ops-toolbar > .ui-btn { flex: 1 1 auto; }
+.dunder-version {
+  font-size: 12px;
+  color: #5A4E42;
+  font-weight: 600;
 }
-@media (prefers-reduced-motion: reduce) {
-  .office-legend > summary::after { transition: none; }
+
+.dunder-window-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dunder-action-btn {
+  background: transparent;
+  border: 0;
+  color: #5A4E42;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: color 0.15s, background 0.15s;
+}
+.dunder-action-btn:hover {
+  background: #D9CEB8;
+  color: #1F1914;
+}
+
+/* ── Main Split: Floor on Left, Command Center on Right ───────────────────── */
+.dunder-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.42fr) minmax(370px, 1fr);
+  min-height: 520px;
+  border-bottom: 2px solid #2B2118;
+}
+
+@media (max-width: 1100px) {
+  .dunder-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Left Pane: Canvas Stage ─────────────────────────────────────────────── */
+.dunder-floor-pane {
+  background: #EFE6D5;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  border-right: 2px solid #2B2118;
+}
+
+.dunder-canvas-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+  aspect-ratio: 544 / 352;
+  border: 4px solid #FFFFFF;
+  box-shadow: 0 0 0 2px #2B2118;
+  background: #739385;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.dunder-canvas-wrap canvas#dunder-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: pointer;
+}
+
+/* Floating dialogue/status bubbles overlay */
+.dunder-bubbles-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.dunder-bubble {
+  position: absolute;
+  background: #FFFFFF;
+  border: 1.5px solid #2B2118;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #1F1914;
+  white-space: nowrap;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  transform: translate(-50%, -100%);
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+}
+.dunder-bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 3px;
+  border-style: solid;
+  border-color: #2B2118 transparent transparent transparent;
+}
+.dunder-bubble.working {
+  border-color: #2B2118;
+  color: #1F1914;
+}
+.dunder-bubble.awaiting {
+  border-color: #2B2118;
+  color: #1F1914;
+}
+.dunder-bubble.starting {
+  border-color: #2B2118;
+  color: #1F1914;
+}
+
+/* Small monitor icon tag beside speech bubble */
+.dunder-bubble .bubble-icon {
+  display: inline-block;
+  background: #3B82F6;
+  color: #FFFFFF;
+  border-radius: 2px;
+  padding: 0 3px;
+  font-size: 9px;
+  margin-left: 3px;
+  vertical-align: middle;
+}
+
+/* Bottom-left memory pill */
+.dunder-memory-pill {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: #FFFDF8;
+  border: 1.5px solid #2B2118;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #2B2118;
+  box-shadow: 0 1px 0 #2B2118;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  z-index: 5;
+}
+.dunder-memory-pill .pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #DC2626;
+}
+
+/* ── Right Pane: Command Center ──────────────────────────────────────────── */
+.dunder-command-center {
+  background: #EFE6D5;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 8px;
+  overflow: hidden;
+}
+
+/* Boss Card */
+.dunder-boss-card {
+  background: #E5DAC4;
+  border: 2px solid #2B2118;
+  border-radius: 3px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 1px 0 #2B2118;
+}
+.boss-avatar-box {
+  width: 28px;
+  height: 44px;
+  background: #D9CDAF;
+  border: 1px solid #2B2118;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: none;
+}
+.boss-avatar-box canvas {
+  image-rendering: pixelated;
+}
+.boss-info {
+  flex: 1;
+  min-width: 0;
+}
+.boss-title {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  color: #1F1914;
+}
+.boss-status {
+  font-size: 11px;
+  color: #4A3E33;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.status-sq {
+  width: 7px;
+  height: 7px;
+  display: inline-block;
+  border: 1px solid #2B2118;
+}
+.status-sq.idle { background: #A1A1AA; }
+.status-sq.working { background: #F59E0B; }
+.status-sq.awaiting { background: #F59E0B; }
+
+.boss-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.dunder-btn {
+  background: #EFE6D5;
+  border: 1.5px solid #2B2118;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #231C16;
+  cursor: pointer;
+  box-shadow: 0 1px 0 #2B2118;
+  transition: background 0.1s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dunder-btn:hover { background: #FAF3E5; }
+.dunder-btn:active { transform: translateY(1px); box-shadow: none; }
+
+/* 10 Command Center Tabs */
+.dunder-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+.dunder-tab {
+  background: #E5DAC4;
+  border: 1.5px solid #2B2118;
+  border-radius: 3px;
+  padding: 4px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #3F3329;
+  cursor: pointer;
+  box-shadow: 0 1px 0 #2B2118;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+.dunder-tab:hover {
+  background: #EDE2CD;
+}
+.dunder-tab.active {
+  background: #EFC662;
+  color: #1A140E;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Console / Terminal View */
+.dunder-console-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #FAF7F0;
+  border: 2px solid #2B2118;
+  border-radius: 3px;
+  overflow: hidden;
+  min-height: 250px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.dunder-console-header {
+  background: #FAF7F0;
+  border-bottom: 1px solid #E2D7C2;
+  padding: 4px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #4A3E33;
+  font-weight: 600;
+}
+.live-tag {
+  color: #2F6F4E;
+  font-weight: 700;
+}
+.font-zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #EFE6D5;
+  border: 1px solid #2B2118;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.zoom-btn {
+  background: transparent;
+  border: 0;
+  color: #2B2118;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
+}
+#zoom-level {
+  font-size: 10px;
+  font-weight: 700;
+  color: #2B2118;
+}
+.dunder-console {
+  flex: 1;
+  padding: 10px 12px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #231C16;
+  font-family: "JetBrains Mono", "Courier New", monospace;
+  background: #FAF7F0;
+  max-height: 250px;
+}
+.dunder-console p {
+  margin: 0 0 6px 0;
+}
+.dunder-console .term-cmd-bar {
+  background: #231C16;
+  color: #FFFFFF;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-weight: 600;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+.dunder-console .term-bullet {
+  color: #231C16;
+  margin: 4px 0;
+  line-height: 1.45;
+}
+.dunder-console .term-muted {
+  color: #6B6055;
+  margin-left: 12px;
+  font-size: 11px;
+}
+.dunder-console .term-baked {
+  color: #8A7E72;
+  margin: 6px 0;
+  font-size: 11px;
+}
+.dunder-console .term-prompt {
+  color: #9B1B2A;
+  font-weight: 700;
+  margin-top: 6px;
+}
+.dunder-console-footer {
+  background: #FAF7F0;
+  border-top: 1px solid #E2D7C2;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #5A4E42;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dunder-console-footer-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ctx-meter { color: #5A4E42; }
+.rc-tag { color: #2F6F4E; font-weight: 700; }
+.perm-tag {
+  color: #B91C1C;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* Queue Composer */
+.dunder-queue-box {
+  background: #FAF7F0;
+  border: 2px solid #2B2118;
+  border-radius: 3px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.queue-title {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  color: #4A3E33;
+}
+.dunder-queue-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  font-family: inherit;
+  color: #1F1914;
+  resize: none;
+  min-height: 44px;
+  outline: none;
+  padding: 0;
+}
+.dunder-queue-input::placeholder {
+  color: #7A6F62;
+}
+.queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.queue-actions .send-btn {
+  background: #EFC662;
+  color: #1A140E;
+  font-weight: 900;
+  margin-left: auto;
+  border: 1.5px solid #2B2118;
+  padding: 3px 10px;
+  border-radius: 3px;
+  box-shadow: 0 1px 0 #2B2118;
+}
+
+/* ── Bottom Agent Roster Strip ───────────────────────────────────────────── */
+.dunder-roster-strip {
+  background: #EFE6D5;
+  padding: 8px 12px;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  align-items: stretch;
+}
+
+.dunder-agent-card {
+  flex: 0 0 145px;
+  background: #E8DDCA;
+  border: 2px solid #2B2118;
+  border-radius: 3px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  box-shadow: 0 1px 0 #2B2118;
+  position: relative;
+  transition: transform 0.1s, background 0.1s;
+}
+.dunder-agent-card:hover {
+  background: #F2E8D7;
+  transform: translateY(-2px);
+  box-shadow: 0 3px 0 #2B2118;
+}
+.dunder-agent-card.selected {
+  border-color: #B45309;
+  background: #FFF7ED;
+  box-shadow: 0 0 0 2px #EFC662, 0 1px 0 #2B2118;
+}
+
+.agent-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 800;
+}
+.agent-name {
+  color: #1F1914;
+  text-transform: uppercase;
+}
+.agent-badge {
+  font-size: 9px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #2B2118;
+}
+.agent-badge.god {
+  background: #EFC662;
+  color: #1A140E;
+  font-weight: 900;
+  padding: 1px 3px;
+  border-radius: 2px;
+  border: 1px solid #2B2118;
+}
+.agent-badge.working {
+  color: #2B2118;
+}
+.agent-badge.idle {
+  color: #71717A;
+}
+
+.agent-card-body {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.agent-portrait-box {
+  width: 28px;
+  height: 44px;
+  flex: none;
+  background: #D9CDAF;
+  border: 1px solid #2B2118;
+  border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.agent-portrait-box canvas {
+  image-rendering: pixelated;
+}
+.agent-card-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.agent-status-note {
+  font-size: 10px;
+  font-weight: 600;
+  color: #4A3E33;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-talk-btn {
+  background: #FAF7F0;
+  border: 1px solid #2B2118;
+  border-radius: 2px;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #1F1914;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  box-shadow: 0 1px 0 #2B2118;
+}
+.agent-talk-btn:hover { background: #E5DAC4; }
+
+.agent-progress-bar {
+  width: 100%;
+  height: 4px;
+  background: #C4B59D;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: auto;
+}
+.agent-progress-fill {
+  height: 100%;
+  background: #06B6D4;
+  border-radius: 2px;
+}
+
+.corner-pip {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 8px 8px;
+  border-color: transparent transparent #06B6D4 transparent;
 }

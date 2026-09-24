@@ -2227,6 +2227,14 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/css")
             elif rel.endswith(".woff2"):
                 self.send_header("Content-Type", "font/woff2")
+            elif rel.endswith(".png"):
+                self.send_header("Content-Type", "image/png")
+            elif rel.endswith(".jpg") or rel.endswith(".jpeg"):
+                self.send_header("Content-Type", "image/jpeg")
+            elif rel.endswith(".svg"):
+                self.send_header("Content-Type", "image/svg+xml")
+            elif rel.endswith(".json") or rel.endswith(".tmj"):
+                self.send_header("Content-Type", "application/json")
             try:
                 self.send_header("Content-Length", str(file_path.stat().st_size))
             except OSError:
