@@ -32,6 +32,11 @@ class AuthenticationType(str, Enum):
     """Authentication mechanisms for accounts."""
     API_KEY = "api_key"
     OAUTH = "oauth"
+    #: A consumer subscription seat (e.g. Claude Pro/Max) that the human logged
+    #: in to with the vendor's own CLI. Distinct from OAUTH because this project
+    #: holds no token for it: the credential lives in that CLI's profile
+    #: directory and is refreshed and revoked by that CLI, not by us.
+    SUBSCRIPTION = "subscription"
     SERVICE_ACCOUNT = "service_account"
     ENVIRONMENT = "environment"
     LOCAL = "local"

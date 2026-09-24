@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from agents.antigravity.adapter import AntigravityAdapter
+from agents.claude.adapter import ClaudeAdapter
+from agents.claude.auth import ClaudeAuthMode
 from agents.cline.adapter import ClineAdapter
 from agents.kiro.adapter import KiroAdapter
 from agents.openhands.adapter import OpenHandsAdapter, OpenHandsProvider
@@ -29,7 +31,77 @@ from providers.registry.provider_registry import Provider, ProviderRegistry
 SIMPLE_CLI_ADAPTERS = {
     "kiro": KiroAdapter,
     "cline": ClineAdapter,
+    "claude": ClaudeAdapter,
 }
+
+#: Providers registered above by a dedicated adapter, so the generic direct-API
+#: loop must skip them or it would register a second, wrong provider object for
+#: the same id.
+CLI_PROVIDER_IDS = ("antigravity", "kiro", "cline", "claude", "openhands")
+
+
+def _pxpipe_base_url_for(config_path: str | Path | None) -> str | None:
+    """Resolve the local pxpipe proxy URL, when the integration is enabled.
+
+    Returning None simply means accounts run against Anthropic directly. The
+    import is local because pxpipe is an optional integration and the registry
+    must still build on a machine that has never heard of it.
+    """
+    try:
+        from integrations.pxpipe import PxpipeManager
+
+        if not PxpipeManager.enabled_in_config(config_path):
+            return None
+        return PxpipeManager.from_config(config_path).base_url
+    except Exception:
+        return None
+
+
+def _claude_adapter_kwargs(account: Any, pxpipe_base_url: str | None) -> dict[str, Any]:
+    """Per-account construction arguments for a Claude adapter."""
+    raw = account.raw if isinstance(account.raw, dict) else {}
+    use_pxpipe = bool(raw.get("use_pxpipe", False))
+    return {
+        "agent_id": account.agent_id,
+        "account_id": account.account_id,
+        "config_dir": raw.get("config_dir"),
+        "auth_mode": ClaudeAuthMode.parse(raw.get("auth_mode") or raw.get("authentication_type")),
+        "credential_reference": raw.get("credential_reference", ""),
+        "pxpipe_base_url": pxpipe_base_url if use_pxpipe else None,
+        "fallback_model": raw.get("fallback_model"),
+    }
+
+
+def _claude_account_fields(adapter: Any, account: Any) -> tuple[AuthenticationType, dict[str, Any]]:
+    """Authentication type and metadata to record for one Claude account.
+
+    Subscription accounts are reported as SUBSCRIPTION rather than OAUTH so an
+    operator auditing the registry can tell at a glance which accounts this
+    project holds a secret for (none of the subscription ones).
+    """
+    raw = account.raw if isinstance(account.raw, dict) else {}
+    mode = ClaudeAuthMode.parse(raw.get("auth_mode") or raw.get("authentication_type"))
+    auth_type = {
+        ClaudeAuthMode.SUBSCRIPTION: AuthenticationType.SUBSCRIPTION,
+        ClaudeAuthMode.OAUTH_TOKEN: AuthenticationType.OAUTH,
+        ClaudeAuthMode.API_KEY: AuthenticationType.API_KEY,
+    }[mode]
+    metadata: dict[str, Any] = {
+        # NOTE: keyed "login_mode", not "auth_mode". The dashboard's response-wide
+        # SecretRedactor blanks ANY key matching /auth|token|secret|credential/ to
+        # "***REDACTED***", so "auth_mode" would render as a redacted string in the
+        # browser even though "subscription" is not a secret. Same precedent as the
+        # "signed_in" metric in ui/dashboard/dashboard.py. The authoritative value
+        # is still Account.authentication_type.
+        "login_mode": mode.value,
+        "config_dir": str(getattr(adapter, "profile_dir", "") or raw.get("config_dir") or ""),
+        "use_pxpipe": bool(raw.get("use_pxpipe", False)),
+        "pxpipe_base_url": getattr(adapter, "pxpipe_base_url", None),
+    }
+    if mode is ClaudeAuthMode.SUBSCRIPTION and hasattr(adapter, "profile_status"):
+        # Metadata only: plan name and expiry, never a token. See agents/claude/auth.py.
+        metadata["subscription"] = adapter.profile_status().to_dict()
+    return auth_type, metadata
 
 
 def create_default_registry(config_path: str | Path | None = None) -> ProviderRegistry:
@@ -91,6 +163,7 @@ def create_default_registry(config_path: str | Path | None = None) -> ProviderRe
         reg.register_provider(provider)
 
     # --- 2. Single-account CLI providers (Kiro, Cline) ----------------------
+    pxpipe_base_url = _pxpipe_base_url_for(config_path)
     for provider_id, adapter_cls in SIMPLE_CLI_ADAPTERS.items():
         meta = get_provider_meta(provider_id, path)
         if not meta or not meta.get("enabled", True):
@@ -118,6 +191,8 @@ def create_default_registry(config_path: str | Path | None = None) -> ProviderRe
             elif provider_id == "kiro":
                 kwargs["agent_id"] = account.agent_id
                 kwargs["account_id"] = account.account_id
+            elif provider_id == "claude":
+                kwargs.update(_claude_adapter_kwargs(account, pxpipe_base_url))
             adapter = adapter_cls(**kwargs)
             provider.add_adapter(adapter)
             # Universal AIProvider bridge
@@ -139,6 +214,8 @@ def create_default_registry(config_path: str | Path | None = None) -> ProviderRe
                 acct_meta["region"] = account.raw.get("region", "us-east-1")
                 if account.raw.get("start_url"):
                     acct_meta["start_url"] = account.raw.get("start_url")
+            elif provider_id == "claude":
+                auth_type, acct_meta = _claude_account_fields(adapter, account)
 
             account_obj = Account(
                 id=account.agent_id,
@@ -195,7 +272,7 @@ def create_default_registry(config_path: str | Path | None = None) -> ProviderRe
 
     # --- 4. Direct API Providers & OpenAI-Compatible Gateways --------------
     for p_id, p_conf in all_providers_cfg.items():
-        if p_id in ("antigravity", "kiro", "cline", "openhands"):
+        if p_id in CLI_PROVIDER_IDS:
             continue
         if not p_conf.get("enabled", True):
             continue
@@ -377,6 +454,8 @@ def sync_registry_with_config(reg: ProviderRegistry, config_path: str | Path | N
                 kwargs["account_id"] = account.account_id
                 kwargs["config_dir"] = account.raw.get("config_dir")
                 kwargs["data_dir"] = account.raw.get("data_dir")
+            elif provider_id == "claude":
+                kwargs.update(_claude_adapter_kwargs(account, _pxpipe_base_url_for(config_path)))
             adapter = adapter_cls(**kwargs)
             prov.add_adapter(adapter)
             reg.register_adapter(provider_id, adapter)
@@ -385,22 +464,26 @@ def sync_registry_with_config(reg: ProviderRegistry, config_path: str | Path | N
 
             existing_acct = reg.account_registry.get_account(account.agent_id)
             if not existing_acct:
+                auth_type = AuthenticationType.LOCAL
+                acct_meta: dict[str, Any] = {
+                    "config_dir": account.raw.get("config_dir"),
+                    "data_dir": account.raw.get("data_dir"),
+                }
+                if provider_id == "claude":
+                    auth_type, acct_meta = _claude_account_fields(adapter, account)
                 reg.account_registry.register_account(
                     Account(
                         id=account.agent_id,
                         provider_id=provider_id,
                         account_name=account.account_id,
                         account_type="agent",
-                        authentication_type=AuthenticationType.LOCAL,
-                        credential_reference="",
+                        authentication_type=auth_type,
+                        credential_reference=account.raw.get("credential_reference", ""),
                         status=AccountStatus.ONLINE if adapter.health()[0] else AccountStatus.OFFLINE,
                         enabled=account.enabled,
                         models=list(adapter.available_models()),
                         capabilities=sorted(list(c.value for c in adapter.capabilities())),
-                        metadata={
-                            "config_dir": account.raw.get("config_dir"),
-                            "data_dir": account.raw.get("data_dir"),
-                        },
+                        metadata=acct_meta,
                     )
                 )
                 synced_accounts.append(account.agent_id)
@@ -410,7 +493,7 @@ def sync_registry_with_config(reg: ProviderRegistry, config_path: str | Path | N
 
     # 3. Direct API providers
     for p_id, p_conf in all_providers_cfg.items():
-        if p_id in ("antigravity", "kiro", "cline", "openhands"):
+        if p_id in CLI_PROVIDER_IDS:
             continue
         if not p_conf.get("enabled", True):
             continue
