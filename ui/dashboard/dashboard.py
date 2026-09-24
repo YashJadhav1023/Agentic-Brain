@@ -2515,8 +2515,12 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         total_usage = get_usage_tracker().get_summary()
         today_usage = get_usage_tracker().get_summary(day=today_str)
         known_tokens_total = token_metrics.get("known_tokens", 0) or token_metrics.get("total_known_tokens", 0)
-        today_tokens_val = today_usage.get("total_tokens", 0) or known_tokens_total
-        today_cost_val = today_usage.get("estimated_cost_usd", 0.0) or total_usage.get("estimated_cost_usd", 0.0)
+        # "Today" must mean today: falling back to lifetime totals when nothing ran
+        # today made the Overview show all-time tokens and cost as today's.
+        today_metrics = orchestrator.swarm.token_tracker.get_metrics(day=today_str)
+        today_known_tokens = today_metrics.get("known_tokens", 0) or 0
+        today_tokens_val = today_usage.get("total_tokens", 0) or today_known_tokens
+        today_cost_val = today_usage.get("estimated_cost_usd", 0.0) or 0.0
         total_cost_val = total_usage.get("estimated_cost_usd", 0.0)
         total_tokens_val = total_usage.get("total_tokens", 0) or known_tokens_total
         all_jobs = job_manager.list_jobs(limit=100)

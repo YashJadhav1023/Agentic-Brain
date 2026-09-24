@@ -371,8 +371,11 @@ class TokenTelemetryTracker:
 
         return record
 
-    def get_metrics(self) -> dict[str, Any]:
-        """Aggregate token telemetry across agents, models, providers, and status tiers."""
+    def get_metrics(self, day: str | None = None) -> dict[str, Any]:
+        """Aggregate token telemetry across agents, models, providers, and status tiers.
+
+        ``day`` ("YYYY-MM-DD", UTC) limits the aggregate to records stamped that day.
+        """
         records: list[TokenRecord] = []
         if self._log_path.is_file():
             try:
@@ -383,6 +386,9 @@ class TokenTelemetryTracker:
                             records.append(TokenRecord.from_dict(json.loads(line)))
             except Exception:
                 pass
+
+        if day:
+            records = [r for r in records if str(r.timestamp or "").startswith(day)]
 
         total_tasks = len(records)
         known_tokens = 0
