@@ -708,6 +708,14 @@ def _dashboard_checks(sb: Sandbox, d: Dashboard, rep: Report) -> None:
     for path in simple_gets:
         expect(f"GET {path}", "GET", path, 200, timeout=60)
 
+    # Office view snapshot: auth-required, fixed top-level contract.
+    expect("office state without token -> 401", "GET", "/api/office/state", 401, auth=False)
+    office_keys = {"generated_at", "sources", "agents", "tasks", "flows", "memory", "handoff"}
+    expect("office state schema", "GET", "/api/office/state", 200, timeout=60,
+           pred=lambda b: office_keys <= set(b) and b["sources"].get("mission_control") is True
+           and isinstance(b["sources"].get("brain_swarm"), bool) and isinstance(b["agents"], list)
+           and len(b["tasks"]) <= 60 and len(b["flows"]) <= 100)
+
     # Bad inputs on GET routes.
     expect("task: missing task_id -> 400", "GET", "/api/task", 400)
     expect("task: unknown id -> 404", "GET", "/api/task?task_id=task-nope", 404)
