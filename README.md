@@ -90,7 +90,6 @@ The Brain consists of modular, loosely coupled subsystems built strictly on Pyth
 | **`antigravity-account-1`** | Google Antigravity | Master Architect & Deep Reasoning | `architecture`, `deep-reasoning`, `governance`, `protocol-design`, `documentation` | Headless CLI (`agy`) |
 | **`antigravity-account-2`** | Google Antigravity | Headless Refactoring & Code Review | `architecture`, `code-review`, `component-refactoring`, `editor-refactoring`, `test-scaffolding` | Headless CLI (`agy`) |
 | **`kiro-cli`** | Kiro | Terminal Operations & Validation | `build-and-test`, `local-validation`, `terminal-operations`, `cloud-read-only`, `kubernetes-read-only` | Headless CLI (`kiro-cli`) |
-| **`claude-account-N`** | Claude Code | Deep Reasoning, Review & Refactoring | `deep-reasoning`, `architecture`, `code-review`, `component-refactoring`, `editor-refactoring`, `test-scaffolding`, `documentation` | Headless CLI (`claude -p`) |
 | **`cline`** | Cline | UI Styling & Component Polish | `code-review`, `component-refactoring`, `editor-refactoring`, `frontend-styling` | Headless CLI (`cline`) |
 
 ---
@@ -317,47 +316,6 @@ python3 scripts/brain.py continue
 # View task status
 python3 scripts/brain.py status
 ```
-
-### Claude accounts & the pxpipe token proxy
-
-Claude Code accounts are first-class execution resources. Each account is isolated
-by its own `CLAUDE_CONFIG_DIR`, and can authenticate with a **Pro/Max
-subscription**, an OAuth token, or an API key — subscription is the default, and
-in that mode **the brain holds no credential at all**: logging in, refresh and
-revocation stay with the official `claude` CLI, and only login metadata (plan,
-expiry) is read so health can be reported.
-
-```bash
-# List Claude accounts with auth mode, plan and pxpipe routing
-python3 scripts/brain.py claude list
-
-# Add a second subscription account (creates a 0700 profile dir, prints the login command)
-python3 scripts/brain.py claude add --name account-2 --use-pxpipe
-
-# Print the interactive login command for an account
-python3 scripts/brain.py claude login claude-account-2
-
-# Login + health state, with no credential exposure
-python3 scripts/brain.py claude status --json
-```
-
-Optionally route those accounts through [pxpipe](https://github.com/teamchong/pxpipe)
-(MIT), a loopback proxy that renders bulky request context as dense PNG pages so
-token-heavy context costs image tokens instead of text tokens. Measured on a real
-request here: **116,185 characters of context became 30,958 characters plus 16
-image pages.**
-
-```bash
-python3 scripts/brain.py pxpipe status     # installed? running? from where?
-python3 scripts/brain.py pxpipe start      # loopback only, on 127.0.0.1:47821
-python3 scripts/brain.py pxpipe savings    # measured savings from the event log
-python3 scripts/brain.py pxpipe stop
-```
-
-pxpipe is **opt-in per account**, because imaged content is lossy for exact
-strings: a misread is a plausible wrong value rather than an error. Full setup,
-security properties, measurement rules and troubleshooting:
-**[docs/CLAUDE_ACCOUNTS.md](./docs/CLAUDE_ACCOUNTS.md)**.
 
 ---
 

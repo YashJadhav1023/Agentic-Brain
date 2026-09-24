@@ -4,8 +4,7 @@
     "Single source of truth for provider, account, execution and model configuration.",
     "No adapter may hard-code a CLI flag, profile directory or model id.",
     "Antigravity model lists were enumerated live with `agy --app_data_dir=<dir> models`.",
-    "dangerously_skip_permissions is false everywhere: headless execution was verified to succeed without it.",
-    "Claude accounts are isolated by CLAUDE_CONFIG_DIR. auth_mode=subscription means the credential belongs to the official claude CLI in that directory and is never read, copied or stored by this project; log in with `brain claude login <agent-id>`."
+    "dangerously_skip_permissions is false everywhere: headless execution was verified to succeed without it."
   ],
   "concurrency": {
     "max_concurrent_agents": 3,
@@ -385,61 +384,6 @@
           ]
         }
       }
-    },
-    "claude": {
-      "id": "claude",
-      "name": "Claude Code",
-      "description": "Headless Claude Code execution across isolated subscription accounts",
-      "enabled": true,
-      "command": "~/.local/bin/claude",
-      "fallback_commands": [
-        "claude",
-        "/usr/local/bin/claude"
-      ],
-      "profile_root": "~/.mission-control/claude",
-      "models_verified_with": "claude --help on 2.1.280 (aliases) plus the model ids the CLI accepts",
-      "auth_modes": {
-        "subscription": "Pro/Max seat logged in with the official CLI; no secret is held by this project",
-        "oauth_token": "Long-lived token from `claude setup-token`, stored in the CredentialManager",
-        "api_key": "Pay-per-token sk-ant-... key, stored in the CredentialManager"
-      },
-      "use_pxpipe": false,
-      "accounts": {
-        "claude-account-1": {
-          "agent_id": "claude-account-1",
-          "account_id": "account-1",
-          "provider_id": "claude",
-          "enabled": true,
-          "description": "Primary Claude subscription; reuses the existing ~/.claude login",
-          "auth_mode": "subscription",
-          "authentication_type": "subscription",
-          "credential_reference": "",
-          "config_dir": "~/.claude",
-          "use_pxpipe": true,
-          "execution": {
-            "command": "~/.local/bin/claude",
-            "output_format": "json",
-            "dangerously_skip_permissions": false,
-            "default_timeout_seconds": 300
-          },
-          "capabilities": [
-            "deep-reasoning",
-            "architecture",
-            "code-review",
-            "component-refactoring",
-            "editor-refactoring",
-            "test-scaffolding",
-            "documentation"
-          ],
-          "models": [
-            "sonnet",
-            "opus",
-            "haiku"
-          ],
-          "default_model": "sonnet",
-          "fallback_model": "haiku"
-        }
-      }
     }
   },
   "future_providers": {
@@ -447,21 +391,6 @@
     "gemini-api": {
       "enabled": false,
       "status": "not-implemented"
-    }
-  },
-  "integrations": {
-    "pxpipe": {
-      "enabled": true,
-      "description": "Local loopback proxy (MIT, upstream teamchong/pxpipe) that renders bulky request context as PNG pages to cut input tokens. Opt-in per account via use_pxpipe, because imaged content is lossy for exact strings.",
-      "port": 47821,
-      "host": "127.0.0.1",
-      "repo_dir": "~/YashDevops/pxpipe",
-      "executable": "",
-      "events_file": "~/.pxpipe/events.jsonl",
-      "models": "claude-fable-5,claude-sonnet-5,claude-opus-5,gemini",
-      "upstream": "https://github.com/teamchong/pxpipe",
-      "license": "MIT",
-      "models_note": "Model ids pxpipe is allowed to image. claude-sonnet-5 and claude-opus-5 are the ids Claude Code actually sends here; pxpipe has no measured dense profile for them, so it renders them with its safer 'legible' geometry (resolveClaudeProfile in src/core/claude-model-profiles.ts) rather than risking silent misreads. Caveat: upstream issue 216 reports the legible profile bailing out of history collapse on very long opus-5 sessions, which sends raw history as text and can 400. Drop claude-opus-5 here if you hit that."
     }
   }
 }
