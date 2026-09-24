@@ -22,6 +22,7 @@ outside BRAIN_DIR, and no non-regular file (a FIFO would block the request).
 from __future__ import annotations
 
 import datetime
+import heapq
 import json
 import os
 import re
@@ -40,11 +41,19 @@ TITLE_CHARS = 140
 DETAIL_CHARS = 160
 FIELD_CHARS = 200          # ids, models, agent names, branches
 REDACT_INPUT_CHARS = 4096  # bound regex work per string; output is far shorter
+#: Whitespace is collapsed over at most this much of a value before the
+#: REDACT_INPUT_CHARS cut (brain files are already capped at MAX_FILE_BYTES).
+CLEAN_SCAN_CHARS = 1024 * 1024
 MAX_ATTEMPTS = 10
 
 #: Newest files read per swarm state folder, and entries scanned per folder.
+#: Task ids are random, so directory order says nothing about age: every
+#: scanned entry is ranked by mtime. A folder beyond MAX_DIR_ENTRIES (an
+#: unpruned completed/ after months of use) is ranked on the first
+#: MAX_DIR_ENTRIES entries only; the snapshot counts such folders in
+#: sources.truncated_dirs so a possibly missing newer task is visible, not silent.
 MAX_FILES_PER_STATE = 80
-MAX_DIR_ENTRIES = 5000
+MAX_DIR_ENTRIES = 20000
 #: Swarm task JSON embeds the agent's full output, so allow a generous cap per
 #: file but bound the whole snapshot.
 MAX_FILE_BYTES = 1024 * 1024
@@ -110,7 +119,18 @@ def clean(value: Any, redactor: Any, limit: int = FIELD_CHARS) -> str | None:
         return None
     if isinstance(value, bool):
         value = "true" if value else "false"
-    text = _WS_RE.sub(" ", str(value)[:REDACT_INPUT_CHARS]).strip()
+    raw = str(value)
+    # Collapse whitespace *before* bounding the redactor's input. Cutting first
+    # let padding (4000 spaces, then a token) cut a secret below the pattern's
+    # minimum length and the collapse then pulled that fragment into view.
+    text = _WS_RE.sub(" ", raw[:CLEAN_SCAN_CHARS]).strip()
+    if len(raw) > CLEAN_SCAN_CHARS or len(text) > REDACT_INPUT_CHARS:
+        # Whatever token straddles a cut is dropped whole: a partial secret
+        # can be too short for the redactor to recognise. Tokens never contain
+        # whitespace, so the last space bounds the last complete one.
+        head = text[:REDACT_INPUT_CHARS]
+        head = head.rsplit(" ", 1)[0] if " " in head else ""
+        text = (head + " \u2026").strip()
     text = (redactor or _NullRedactor()).redact(text)
     if len(text) > limit:
         text = text[: max(0, limit - 1)].rstrip() + "\u2026"
@@ -139,11 +159,12 @@ def parse_ts(value: Any) -> datetime.datetime | None:
         return None
     try:
         dt = datetime.datetime.fromisoformat(value.strip()[:64].replace("Z", "+00:00"))
-    except ValueError:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        # An extreme offset ("0001-01-01T00:00:00+05:00") overflows here.
+        return dt.astimezone(datetime.timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
-    return dt.astimezone(datetime.timezone.utc)
 
 
 def iso(value: Any) -> str | None:
@@ -178,6 +199,7 @@ class _Budget:
     def __init__(self, total: int) -> None:
         self.remaining = total
         self.skipped = 0
+        self.truncated_dirs = 0
 
 
 def _within(path: Path, root: Path) -> Path | None:
@@ -218,15 +240,17 @@ def read_bounded(path: Path, root: Path, max_bytes: int, budget: _Budget | None 
     return data
 
 
-def _newest_json_files(folder: Path, root: Path) -> list[Path]:
+def _newest_json_files(folder: Path, root: Path, budget: _Budget | None = None) -> list[Path]:
     """Newest *.json files in folder (capped), skipping anything outside root."""
     if _within(folder, root) is None:
         return []
-    entries: list[tuple[float, Path]] = []
+    entries: list[tuple[float, str]] = []
     try:
         with os.scandir(folder) as it:
             for i, entry in enumerate(it):
                 if i >= MAX_DIR_ENTRIES:
+                    if budget is not None:
+                        budget.truncated_dirs += 1
                     break
                 if not entry.name.endswith(".json"):
                     continue
@@ -234,30 +258,31 @@ def _newest_json_files(folder: Path, root: Path) -> list[Path]:
                     mtime = entry.stat(follow_symlinks=False).st_mtime
                 except OSError:
                     continue
-                entries.append((mtime, Path(entry.path)))
+                entries.append((mtime, entry.path))
     except OSError:
         return []
-    entries.sort(key=lambda e: e[0], reverse=True)
-    return [p for _, p in entries[:MAX_FILES_PER_STATE]]
+    return [Path(p) for _, p in heapq.nlargest(MAX_FILES_PER_STATE, entries)]
 
 
-def read_swarm_records(brain_root: Path) -> tuple[list[tuple[str, dict]], int]:
+def read_swarm_records(brain_root: Path, budget: _Budget | None = None) -> tuple[list[tuple[str, dict]], int]:
     """(state, record) pairs from the swarm pool, plus the count of skipped files."""
     if not brain_root:
         return [], 0
     root = Path(brain_root).resolve()
     tasks_dir = root / "swarm" / "tasks"
-    budget = _Budget(MAX_TOTAL_BYTES)
+    budget = budget or _Budget(MAX_TOTAL_BYTES)
     out: list[tuple[str, dict]] = []
     seen: set[str] = set()
     for state in SWARM_STATES:
-        for path in _newest_json_files(tasks_dir / state, root):
+        for path in _newest_json_files(tasks_dir / state, root, budget):
             raw = read_bounded(path, root, MAX_FILE_BYTES, budget)
             if raw is None:
                 continue
             try:
                 rec = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError):
+            # RecursionError: "[" * 200000 is valid-looking input that blows
+            # the decoder's stack; one such file must not take the endpoint down.
+            except (UnicodeDecodeError, ValueError, RecursionError):
                 budget.skipped += 1
                 continue
             if not isinstance(rec, dict):
@@ -340,7 +365,7 @@ def read_jsonl_tail(path: Path | None, limit: int = 50, max_bytes: int = MAX_ROU
             continue
         try:
             item = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
         if isinstance(item, dict):
             out.append(item)
@@ -378,8 +403,15 @@ def _swarm_stage(state: str, rec: dict) -> str:
     if state == "escalated":
         return "escalated"
     stage_state = str(rec.get("stage_state") or "")
-    if stage_state.startswith("staged") or (rec.get("assigned_to") in DELIVERY_AGENTS and not stage_state):
+    # Delivery lifecycle (scripts/brain/swarm.py): staged_for_<agent> ->
+    # acknowledged_by_<agent> -> working -> awaiting_verification. Staging and
+    # acknowledgement are receipt, not execution (AGENTS.md), so both stay
+    # "delivered"; only "working" is evidence the agent is running the task.
+    if stage_state.startswith(("staged", "acknowledged")) or (
+            rec.get("assigned_to") in DELIVERY_AGENTS and not stage_state):
         return "delivered"
+    if stage_state == "awaiting_verification":
+        return "review"
     return "running"
 
 
@@ -419,6 +451,7 @@ def normalize_swarm_task(state: str, rec: dict, redactor: Any) -> dict:
         # Internal, stripped before the response: short redacted error summary.
         "_error": clean(rec.get("error"), redactor, DETAIL_CHARS) if state == "escalated" else None,
         "_staged_at": iso(rec.get("staged_at") or (rec.get("updated_at") if str(rec.get("stage_state") or "").startswith("staged") else None)),
+        "_acknowledged": str(rec.get("stage_state") or "").startswith("acknowledged"),
     }
 
 
@@ -450,6 +483,7 @@ def normalize_mc_task(task: Any, redactor: Any) -> dict:
         "source": "mission-control",
         "_error": clean(errors[-1], redactor, DETAIL_CHARS) if errors and _MC_STAGE.get(str(status)) == "escalated" else None,
         "_staged_at": None,
+        "_acknowledged": False,
     }
 
 
@@ -488,6 +522,7 @@ def normalize_job(job: Any, redactor: Any) -> dict:
         "source": "mission-control",
         "_error": clean(getattr(job, "error", None), redactor, DETAIL_CHARS) if status == "failed" else None,
         "_staged_at": None,
+        "_acknowledged": False,
     }
 
 
@@ -517,8 +552,10 @@ def task_flows(task: dict, redactor: Any) -> list[dict]:
         reason = task["routing_reason"] or f"routed to {agent}"
         out.append(_flow(task["created_at"], "route", tid, "queue", agent, reason, redactor))
     if task["stage"] == "delivered" or (task["kind"] == "antigravity-ide" and task.get("_staged_at")):
+        detail = ("acknowledged; no progress reported yet" if task.get("_acknowledged")
+                  else "delivered; awaiting in-editor acknowledgement")
         out.append(_flow(task.get("_staged_at") or task["started_at"] or task["created_at"], "deliver",
-                         tid, "queue", agent, "delivered; awaiting in-editor acknowledgement", redactor))
+                         tid, "queue", agent, detail, redactor))
     elif task["started_at"]:
         out.append(_flow(task["started_at"], "start", tid, "queue", agent, task["model"] or "started", redactor))
     # Failover trail: "acct: reason on model" entries; each failed one hands to the next.
@@ -657,10 +694,17 @@ def build_office_state(
             resolved_root = None
     swarm_records: list[tuple[str, dict]] = []
     skipped = 0
+    budget = _Budget(MAX_TOTAL_BYTES)
     brain_swarm = bool(resolved_root and _within(resolved_root / "swarm" / "tasks", resolved_root)
                        and (resolved_root / "swarm" / "tasks").is_dir())
     if brain_swarm:
-        swarm_records, skipped = read_swarm_records(resolved_root)
+        try:
+            swarm_records, skipped = read_swarm_records(resolved_root, budget)
+        except Exception:
+            # Headless agents write this pool with approval gates off: an
+            # unforeseen read failure makes the swarm source unavailable for
+            # this snapshot, never a 500 on every poll.
+            swarm_records, skipped, brain_swarm = [], skipped + 1, False
 
     tasks: list[dict] = []
     seen: set[str] = set()
@@ -747,6 +791,7 @@ def build_office_state(
     for t in tasks:
         t.pop("_error", None)
         t.pop("_staged_at", None)
+        t.pop("_acknowledged", None)
 
     return {
         "generated_at": now.isoformat(),
@@ -755,6 +800,7 @@ def build_office_state(
             "brain_swarm": brain_swarm,
             "brain_dir": str(resolved_root) if resolved_root else None,
             "skipped_files": skipped,
+            "truncated_dirs": budget.truncated_dirs,
         },
         "agents": agents,
         "tasks": tasks,

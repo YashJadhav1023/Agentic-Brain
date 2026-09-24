@@ -380,6 +380,104 @@ class TestOfficeStateFlowsAndAgents(OfficeStateFixture):
         self.assertEqual(agents["cline"]["status"], "idle")
 
 
+
+class TestOfficeStateRepairs(OfficeStateFixture):
+    """Regressions from the first independent verification round."""
+
+    TASKS = property(lambda self: self.brain / "swarm" / "tasks")
+
+    def test_deeply_nested_json_is_skipped_not_fatal(self):
+        # "[" * 200000 raises RecursionError, not ValueError, in json.loads.
+        _write(self.TASKS / "pending" / "deep.json", "[" * 200000 + "]" * 200000)
+        _write(self.TASKS / "pending" / "deepval.json",
+               '{"id":"task-deepval","title":' + "[" * 200000 + "]" * 200000 + "}")
+        state = self.build()
+        ids = {t["id"] for t in state["tasks"]}
+        self.assertTrue(state["sources"]["brain_swarm"])
+        self.assertIn("task-r1", ids)
+        self.assertNotIn("task-deepval", ids)
+        self.assertGreaterEqual(state["sources"]["skipped_files"], 5)
+
+    def test_unexpected_swarm_read_failure_degrades_to_unavailable(self):
+        with mock.patch.object(office_state, "read_swarm_records", side_effect=RuntimeError("boom")):
+            state = self.build()
+        self.assertFalse(state["sources"]["brain_swarm"])
+        self.assertIn("mc-1", {t["id"] for t in state["tasks"]})
+
+    def test_whitespace_padding_cannot_split_a_secret_past_the_redactor(self):
+        gh = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+        # Before the fix the 4096-char cut landed inside the token and the
+        # whitespace collapse then pulled "ghp_" + 28 chars into the title.
+        _write(self.TASKS / "pending" / "task-pad.json", {
+            "id": "task-pad", "title": "deploy" + " " * 4058 + gh, "assigned_to": "kiro-cli",
+            "created_at": _ts(0.5)})
+        body = json.dumps(self.build())
+        self.assertNotIn(gh[:12], body)
+        for pad in (4000, 4090, 4094, 5000):
+            for text in ("a" * pad + " " + gh, "x " * (pad // 2) + gh, "deploy" + " " * pad + gh):
+                out = office_state.clean(text, self.redactor, 4200) or ""
+                self.assertNotIn(gh[:8], out, f"pad={pad}")
+
+    def test_clean_bounds_output_for_huge_values(self):
+        out = office_state.clean("word " * 500000, self.redactor, 50)
+        self.assertLessEqual(len(out), 50)
+        self.assertEqual(office_state.clean("z" * 10000, self.redactor, 50), "\u2026")
+
+    def test_acknowledged_delivery_is_receipt_not_execution(self):
+        _write(self.TASKS / "in-progress" / "task-d1.json", {
+            "id": "task-d1", "title": "Refactor the auth guards", "assigned_to": "antigravity-ide",
+            "status": "in-progress", "created_at": _ts(20), "staged_at": _ts(19), "updated_at": _ts(3),
+            "stage_state": "acknowledged_by_antigravity-ide", "model_reported": "gemini-3.8-flash-medium",
+        })
+        state = self.build()
+        task = next(t for t in state["tasks"] if t["id"] == "task-d1")
+        ide = next(a for a in state["agents"] if a["id"] == "antigravity-ide")
+        self.assertEqual(task["stage"], "delivered")
+        self.assertNotEqual(ide["status"], "working")
+        flows = [f for f in state["flows"] if f["task_id"] == "task-d1"]
+        self.assertNotIn("start", {f["type"] for f in flows})
+        self.assertIn("acknowledged", next(f for f in flows if f["type"] == "deliver")["detail"])
+
+    def test_delivery_progress_events_map_to_running_and_review(self):
+        for event, stage, status in (("working", "running", "working"),
+                                     ("awaiting_verification", "review", "idle")):
+            _write(self.TASKS / "in-progress" / "task-d1.json", {
+                "id": "task-d1", "title": "Refactor", "assigned_to": "antigravity-ide",
+                "status": "in-progress", "created_at": _ts(20), "staged_at": _ts(19), "stage_state": event})
+            state = self.build()
+            task = next(t for t in state["tasks"] if t["id"] == "task-d1")
+            ide = next(a for a in state["agents"] if a["id"] == "antigravity-ide")
+            self.assertEqual((task["stage"], ide["status"]), (stage, status), event)
+
+    def test_extreme_offset_timestamps_fail_soft(self):
+        bad = "0001-01-01T00:00:00+05:00"
+        self.assertIsNone(office_state.parse_ts(bad))
+        self.assertIsNone(office_state.parse_ts("9999-12-31T23:59:59-01:00"))
+        memory = FakeMemory()
+        memory.list_all = lambda limit=10: [SimpleNamespace(scope="project", created_at=bad,
+                                                            source_agent="a", task_id=None)]
+        state = self.build(memory_store=memory,
+                           routing_history=[{"timestamp": bad, "job_id": "j9", "selected_account": "x"}])
+        self.assertEqual(state["memory"]["recent"][0]["ts"], None)
+        self.assertNotIn("j9", {f["task_id"] for f in state["flows"]})
+
+    def test_large_state_folder_ranks_every_scanned_entry_by_mtime(self):
+        folder = self.TASKS / "completed"
+        for i in range(300):
+            _write(folder / f"bulk-{i:04d}.json", {"id": f"bulk-{i}", "title": "old", "created_at": _ts(900)})
+            os.utime(folder / f"bulk-{i:04d}.json", (1_000_000 + i, 1_000_000 + i))
+        # The fixture's own entries (task-c1, broken, list, symlink, FIFO) are
+        # newer than all 300 bulk files, so they alone fill the cap.
+        fixture = sorted(n for n in os.listdir(folder) if not n.startswith("bulk-"))
+        with mock.patch.object(office_state, "MAX_FILES_PER_STATE", len(fixture)):
+            names = [p.name for p in office_state._newest_json_files(folder, self.brain.resolve())]
+        self.assertEqual(sorted(names), fixture)
+        budget = office_state._Budget(0)
+        with mock.patch.object(office_state, "MAX_DIR_ENTRIES", 10):
+            office_state._newest_json_files(folder, self.brain.resolve(), budget)
+        self.assertEqual(budget.truncated_dirs, 1)
+
+
 class TestHelpers(unittest.TestCase):
     def test_read_jsonl_tail_is_bounded_and_tolerant(self):
         tmp = Path(tempfile.mkdtemp(prefix="office-jsonl-"))
