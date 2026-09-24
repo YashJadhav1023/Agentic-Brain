@@ -102,8 +102,11 @@ _MC_STAGE = {
 _JOB_STAGE = {"pending": "queued", "running": "running", "completed": "done", "failed": "escalated", "cancelled": "escalated"}
 
 _WS_RE = re.compile(r"\s+")
-_OBS_RE = re.compile(r"^\s*-\s*\[(status|agent|next)\]\s*(.*?)\s*$", re.I)
-_H1_RE = re.compile(r"^#\s+(.+?)\s*$")
+# Matched against a stripped, length-capped line (see _handoff_line) so neither
+# pattern needs a trailing \s* or a lazy group; both stay linear on hostile input.
+_OBS_RE = re.compile(r"^-\s*\[(status|agent|next)\]\s*(.*)$", re.I)
+_H1_RE = re.compile(r"^#\s+(\S.*)$")
+HANDOFF_LINE_CHARS = 2000
 
 
 # --- String hygiene ----------------------------------------------------------
@@ -119,7 +122,12 @@ def clean(value: Any, redactor: Any, limit: int = FIELD_CHARS) -> str | None:
         return None
     if isinstance(value, bool):
         value = "true" if value else "false"
-    raw = str(value)
+    redact = (redactor or _NullRedactor()).redact
+    # Redact the raw text first: the redactor's registered-secret check is an
+    # exact substring match, and a secret containing whitespace would no longer
+    # match after the collapse below. The second pass after cutting catches
+    # pattern-shaped secrets that padding had pushed past the scan window.
+    raw = redact(str(value)[:CLEAN_SCAN_CHARS * 2])
     # Collapse whitespace *before* bounding the redactor's input. Cutting first
     # let padding (4000 spaces, then a token) cut a secret below the pattern's
     # minimum length and the collapse then pulled that fragment into view.
@@ -131,7 +139,7 @@ def clean(value: Any, redactor: Any, limit: int = FIELD_CHARS) -> str | None:
         head = text[:REDACT_INPUT_CHARS]
         head = head.rsplit(" ", 1)[0] if " " in head else ""
         text = (head + " \u2026").strip()
-    text = (redactor or _NullRedactor()).redact(text)
+    text = redact(text)
     if len(text) > limit:
         text = text[: max(0, limit - 1)].rstrip() + "\u2026"
     return text or None
@@ -318,6 +326,7 @@ def read_brain_handoff(brain_root: Path, redactor: Any) -> dict | None:
             if line.strip() == "---":
                 in_front_matter = False
             continue
+        line = line[:HANDOFF_LINE_CHARS].strip()
         if title is None:
             m = _H1_RE.match(line)
             if m:
@@ -328,7 +337,7 @@ def read_brain_handoff(brain_root: Path, redactor: Any) -> dict | None:
             found[m.group(1).lower()] = m.group(2)
     try:
         mtime = datetime.datetime.fromtimestamp((_within(path, root) or path).stat().st_mtime, datetime.timezone.utc)
-    except OSError:
+    except (OSError, ValueError, OverflowError):
         mtime = None
     status = clean(found.get("status"), redactor, 40)
     return {
@@ -583,9 +592,10 @@ def routing_flows(history: Iterable[dict], redactor: Any, known_task_ids: set[st
     """
     out = []
     for rec in history:
-        if not isinstance(rec, dict) or (rec.get("job_id") and rec.get("job_id") in known_task_ids):
+        job_id = rec.get("job_id") if isinstance(rec, dict) else None
+        if not isinstance(rec, dict) or (isinstance(job_id, str) and job_id in known_task_ids):
             continue
-        out.append(_flow(rec.get("timestamp"), "route", rec.get("job_id") or None, "router",
+        out.append(_flow(rec.get("timestamp"), "route", job_id if isinstance(job_id, str) and job_id else None, "router",
                          rec.get("selected_account") or rec.get("selected_agent"),
                          rec.get("reason") or rec.get("task_text"), redactor))
     return [f for f in out if f]
