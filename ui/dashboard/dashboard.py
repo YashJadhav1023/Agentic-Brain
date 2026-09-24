@@ -72,6 +72,7 @@ from providers.registry.config import load_config, resolve_config_path
 from providers.registry.credential_manager import SecretRedactor, get_credential_manager
 from providers.registry.model_registry import ModelMetadata
 from tasks.manager import Task, TaskManager, TaskPriority, TaskStatus
+from ui.dashboard import office_state
 
 STATIC_DIR = (Path(__file__).resolve().parent / "static").resolve()
 PORT = int(os.environ.get("BRAIN_PORT", "3333"))
@@ -254,6 +255,35 @@ job_manager = JobManager(
     storage_dir=PROJECT_ROOT / "runtime" / "jobs",
 )
 redactor = get_credential_manager().redactor
+
+# Office view: Mission Control's own task files only. The shared swarm pool is
+# read separately by office_state with bounded, symlink-safe reads, so it must
+# not also be pulled in (unbounded) through TaskManager's include_swarm merge.
+_office_task_manager = TaskManager(root_tasks_dir=PROJECT_ROOT / "tasks", include_swarm=False)
+_office_cache = office_state.SnapshotCache()
+
+
+def _build_office_state() -> dict[str, Any]:
+    """Snapshot for GET /api/office/state (cached ~1s by the caller)."""
+    def _safe(fn: Any, default: Any) -> Any:
+        try:
+            return fn()
+        except Exception:
+            logger.debug("office state source failed", exc_info=True)
+            return default
+
+    return office_state.build_office_state(
+        mc_tasks=_safe(lambda: _office_task_manager.list_tasks()[: office_state.MAX_TASKS * 2], []),
+        jobs=_safe(lambda: job_manager.list_jobs(limit=office_state.MAX_TASKS), []),
+        routing_history=office_state.read_jsonl_tail(
+            getattr(orchestrator.router, "_history_file", None), limit=50
+        ),
+        memory_store=memory_store,
+        handoff_manager=handoff_manager,
+        accounts=_safe(lambda: registry.account_registry.list_accounts(), []),
+        brain_root=brain_dir(),
+        redactor=redactor,
+    )
 
 # --- Dashboard Performance Caching & Live Swarm Synchronization ---
 _system_status_cache: dict[str, Any] | None = None
@@ -2631,6 +2661,16 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             self._serve_json(self._get_system_status())
         elif path == "/api/agents":
             self._serve_json(self._get_agents_runtime())
+        elif path == "/api/office/state":
+            # Auth-required (not in PUBLIC_GET_PATHS). Keyed on BRAIN_DIR so a
+            # relocated store is never served from a stale snapshot.
+            try:
+                snapshot = _office_cache.get(str(brain_dir()), _build_office_state)
+            except Exception:
+                logger.warning("office state snapshot failed", exc_info=True)
+                self._serve_json({"error": "Office state unavailable"}, status=500)
+            else:
+                self._serve_json(snapshot)
         elif path == "/api/sessions":
             self._serve_json(
                 {"sessions": [s.to_dict() for s in orchestrator.sessions.list_recent(50)]}
