@@ -1,0 +1,101 @@
+/* office.css — the "Office" floor view (paired with static/office.js).
+   Everything is prefixed `office-` so it cannot collide with ui-kit, the
+   scoped `ops-` styles or Tailwind utilities. Colours come from the ui-kit
+   tokens; the pixel palette itself lives in office.js. */
+
+/* position: relative keeps the absolutely positioned .sr-only live list inside
+   the shell's scroller; without it the list escaped to the document and made
+   the whole page (header included) scroll. */
+#tab-office { min-width: 0; position: relative; }
+
+.office-banner {
+  display: flex; align-items: flex-start; gap: .75rem;
+  padding: .75rem 1rem; border-radius: var(--ui-radius);
+  border: 1px solid rgba(245,158,11,.45); background: rgba(245,158,11,.08);
+  color: #FDE68A; font-size: .82rem; line-height: 1.5;
+}
+.office-banner[hidden] { display: none; }
+.office-banner i { margin-top: .2rem; }
+.office-banner strong { color: #FEF3C7; }
+.office-banner-hint { display: block; color: var(--ui-text-muted); overflow-wrap: anywhere; }
+
+.office-stats { display: flex; flex-wrap: wrap; gap: .4rem; }
+.office-stat {
+  display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .6rem; border-radius: 999px;
+  font-size: .72rem; font-weight: 600; color: var(--ui-text-muted);
+  background: var(--ui-surface); border: 1px solid var(--ui-border); font-variant-numeric: tabular-nums;
+}
+.office-stat b { color: var(--ui-text); font-weight: 700; }
+.office-stat .ui-dot { width: .45rem; height: .45rem; }
+.office-stat-note { color: var(--ui-text-faint); font-weight: 500; }
+
+.office-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+/* The floor needs width to stay legible, so details sit beside it only on
+   very wide screens and below it otherwise. */
+@media (min-width: 1536px) { .office-layout { grid-template-columns: minmax(0, 1fr) 21rem; } }
+
+.office-stage {
+  position: relative; width: 100%; overflow: hidden; line-height: 0;
+  border-radius: var(--ui-radius); border: 1px solid var(--ui-border); background: #14171D;
+}
+.office-stage canvas {
+  display: block; width: 100%; height: auto; cursor: default;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+  touch-action: manipulation;
+}
+/* Keyboard layer: one transparent button per agent desk and station. Mouse and
+   touch go straight through to the canvas (precise hit-testing there); Tab
+   lands on these and the focus ring outlines the spot on the floor. */
+.office-hotspots { position: absolute; inset: 0; pointer-events: none; }
+.office-hotspot {
+  position: absolute; pointer-events: none; padding: 0; margin: 0;
+  background: transparent; border: 0; border-radius: 6px; color: transparent;
+}
+.office-hotspot:focus-visible { outline: 2px solid #FDE047; outline-offset: 1px; box-shadow: 0 0 0 4px rgba(10,10,10,.65); }
+.office-hint { margin-top: .5rem; font-size: .75rem; color: var(--ui-text-faint); }
+
+.office-panel { min-width: 0; max-height: none; }
+@media (min-width: 1536px) { .office-panel { position: sticky; top: 1rem; max-height: calc(100vh - 7rem); overflow: auto; } }
+.office-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
+.office-eyebrow { font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ui-text-faint); }
+.office-panel-title { font-size: .98rem; font-weight: 700; color: #fff; line-height: 1.35; overflow-wrap: anywhere; margin-top: .15rem; }
+.office-badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .75rem; }
+.office-kv { display: grid; grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr); gap: .4rem .75rem; font-size: .8rem; }
+.office-kv dt { color: var(--ui-text-faint); font-weight: 600; }
+.office-kv dd { color: var(--ui-text); overflow-wrap: anywhere; min-width: 0; }
+.office-sub { margin: 1rem 0 .4rem; font-size: .7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ui-text-muted); }
+.office-p { font-size: .8rem; color: var(--ui-text-muted); line-height: 1.55; overflow-wrap: anywhere; }
+.office-list { display: flex; flex-direction: column; gap: .35rem; }
+.office-link {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%;
+  padding: .45rem .6rem; border-radius: 8px; text-align: left; font-size: .78rem; color: var(--ui-text);
+  background: var(--ui-bg); border: 1px solid var(--ui-border); cursor: pointer;
+}
+.office-link:hover { border-color: var(--ui-border-strong); }
+.office-link-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office-trail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; font-size: .76rem; }
+.office-trail li { padding: .35rem .55rem; border-radius: 6px; background: var(--ui-bg); border: 1px solid var(--ui-border); overflow-wrap: anywhere; }
+.office-flow-type { font-family: "JetBrains Mono", monospace; font-size: .7rem; color: #A5B4FC; }
+.office-conf { display: inline-block; vertical-align: middle; width: 5rem; height: .45rem; border-radius: 999px; background: var(--ui-surface-3); overflow: hidden; margin-right: .4rem; }
+.office-conf > span { display: block; height: 100%; background: var(--ui-busy); border-radius: 999px; }
+.office-tier { display: inline-flex; align-items: center; padding: .05rem .45rem; border-radius: 999px; font-size: .68rem; font-weight: 700; border: 1px solid currentColor; }
+.office-close { flex: none; }
+
+.office-legend > summary { cursor: pointer; font-size: .9rem; font-weight: 600; color: var(--ui-text); list-style: none; display: flex; align-items: center; gap: .5rem; }
+.office-legend > summary::-webkit-details-marker { display: none; }
+.office-legend > summary::after { content: "\25BE"; margin-left: auto; color: var(--ui-text-faint); transition: transform .15s; }
+.office-legend[open] > summary::after { transform: rotate(180deg); }
+.office-steps { margin: 1rem 0 0; padding-left: 1.25rem; list-style: decimal; display: grid; gap: .6rem; font-size: .82rem; color: var(--ui-text-muted); line-height: 1.55; }
+.office-steps b { color: var(--ui-text); }
+.office-steps code, .office-key code { font-family: "JetBrains Mono", monospace; font-size: .74rem; background: var(--ui-surface-2); padding: .05rem .3rem; border-radius: 4px; }
+.office-key { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: .45rem .9rem; margin-top: 1rem; font-size: .78rem; color: var(--ui-text-muted); }
+.office-key span { display: flex; align-items: center; gap: .5rem; }
+.office-swatch { flex: none; width: .9rem; height: .7rem; border-radius: 2px; border: 1px solid rgba(255,255,255,.25); }
+
+@media (max-width: 639px) {
+  #tab-office .ui-page-header > .ops-toolbar { width: 100%; }
+  #tab-office .ops-toolbar > .ui-btn { flex: 1 1 auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .office-legend > summary::after { transition: none; }
+}
