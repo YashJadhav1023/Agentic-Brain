@@ -262,6 +262,29 @@ redactor = get_credential_manager().redactor
 _office_task_manager = TaskManager(root_tasks_dir=PROJECT_ROOT / "tasks", include_swarm=False)
 _office_cache = office_state.SnapshotCache()
 
+#: HTTP methods that cannot change server state. A successful authenticated read
+#: over one of these is not journaled as AUTH_SUCCESS: the UI polls them every few
+#: seconds, which previously made that one event type 72% of the event log. See
+#: _verify_auth for the measurement and the reasoning.
+_NON_MUTATING_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+#: Swarm task directory name -> SSE event emitted when a file there changes.
+#:
+#: The keys must match the directory names the swarm CLI actually creates under
+#: $BRAIN_DIR/swarm/tasks/, which are hyphenated. This previously read
+#: "in_progress" with an underscore, so the one state that matters most for a
+#: live UI -- a task that is currently running -- was watched under a path that
+#: does not exist. No task.started event ever fired, which is why the Office view
+#: did not move when a task was dispatched and only caught up on the next full
+#: poll. The names are asserted against office_state's own list in
+#: tests/unit/test_office_task_sync.py so they cannot drift apart again.
+_SWARM_STATE_EVENTS: dict[str, str] = {
+    "pending": "task.queued",
+    "in-progress": "task.started",
+    "completed": "task.completed",
+    "escalated": "task.failed",
+}
+
 
 def _build_office_state() -> dict[str, Any]:
     """Snapshot for GET /api/office/state (cached ~1s by the caller)."""
@@ -333,7 +356,7 @@ def _swarm_task_watcher_loop() -> None:
 
     # Prime existing files so we only notify on genuinely new/changed tasks
     if not _last_swarm_task_mtimes and swarm_dir.is_dir():
-        for folder in ("in_progress", "completed", "escalated", "pending"):
+        for folder in _SWARM_STATE_EVENTS:
             p_dir = swarm_dir / folder
             if p_dir.is_dir():
                 for f in p_dir.glob("*.json"):
@@ -347,12 +370,7 @@ def _swarm_task_watcher_loop() -> None:
             time.sleep(0.8)
             if not swarm_dir.is_dir():
                 continue
-            folders = {
-                "in_progress": "task.started",
-                "completed": "task.completed",
-                "escalated": "task.failed",
-                "pending": "task.queued",
-            }
+            folders = _SWARM_STATE_EVENTS
             has_changes = False
             for folder, evt_name in folders.items():
                 p_dir = swarm_dir / folder
@@ -2108,12 +2126,28 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 valid = True
 
         if valid:
-            event_bus.emit(
-                Event(
-                    event_type=EventType.AUTH_SUCCESS,
-                    metadata={"path": path, "client": client_ip},
+            # Journal the success only for requests that can change state.
+            #
+            # Every authenticated read used to write a row here, and the UI polls
+            # several of them every few seconds. Measured on this machine:
+            # AUTH_SUCCESS was 72% of runtime/logs/events.jsonl — 77,809 of
+            # 108,112 rows and 22.5 MiB — accruing at ~9 rows/second while the
+            # dashboard merely sat open. That buried the governance signal
+            # (task lifecycle, routing, failover) at ~1% density each and made
+            # every consumer that replays the log pay for the noise, including
+            # this dashboard's own get_recent_events().
+            #
+            # A successful read of a loopback GET is not an audit-worthy event.
+            # A successful *mutation* is, so those are still recorded, and
+            # AUTH_FAILURE is always recorded because a rejected credential is a
+            # real security signal regardless of method.
+            if self.command not in _NON_MUTATING_METHODS:
+                event_bus.emit(
+                    Event(
+                        event_type=EventType.AUTH_SUCCESS,
+                        metadata={"path": path, "client": client_ip, "method": self.command},
+                    )
                 )
-            )
             return True
         else:
             event_bus.emit(
@@ -2272,12 +2306,30 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         sessions = orchestrator.sessions.list_recent(200)
         events = event_bus.get_recent_events(400)
         active_ids = set(orchestrator.swarm.get_active_task_ids())
+        # Hoisted out of the per-agent loop below. get_metrics() rebuilds the
+        # whole token aggregate on every call — measured at ~268 ms — so calling
+        # it once per account made this endpoint cost 11 x 268 ms = ~2.4 s of its
+        # ~3 s total, which is what made the UI feel like it was lagging behind
+        # every dispatch. The result is identical: it is keyed by agent below and
+        # does not depend on the loop variable.
+        token_metrics = orchestrator.swarm.token_tracker.get_metrics()
+        token_metrics_by_agent = token_metrics.get("by_agent", {})
+        # Index the two per-agent scans as well. Both were O(agents x items)
+        # linear filters inside the loop; with 11 accounts and 200 sessions plus
+        # 400 events that is ~6,600 comparisons per request for data that can be
+        # bucketed once.
+        sessions_by_agent: dict[str, list[Any]] = {}
+        for _session in sessions:
+            sessions_by_agent.setdefault(_session.agent_id, []).append(_session)
+        events_by_agent: dict[str, list[Any]] = {}
+        for _event in events:
+            events_by_agent.setdefault(_event.agent_id, []).append(_event)
 
         for provider in providers.values():
             for agent_id, account in provider["accounts"].items():
                 agent_tasks = [t for t in all_tasks if t.assigned_agent == agent_id]
-                agent_sessions = [s for s in sessions if s.agent_id == agent_id]
-                agent_events = [e for e in events if e.agent_id == agent_id]
+                agent_sessions = sessions_by_agent.get(agent_id, [])
+                agent_events = events_by_agent.get(agent_id, [])
 
                 running = [t for t in agent_tasks if t.status == TaskStatus.RUNNING and t.task_id in active_ids]
                 completed = [t for t in agent_tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.VERIFICATION_COMPLETE)]
@@ -2287,8 +2339,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 durations = [t.duration_seconds for t in finished if t.duration_seconds and t.duration_seconds > 0]
                 avg_latency = (sum(durations) / len(durations)) if durations else 0.0
 
-                token_metrics = orchestrator.swarm.token_tracker.get_metrics()
-                token_info = token_metrics.get("by_agent", {}).get(agent_id, {})
+                token_info = token_metrics_by_agent.get(agent_id, {})
 
                 health_reason = account.get("health_reason", "")
                 if not account.get("healthy"):

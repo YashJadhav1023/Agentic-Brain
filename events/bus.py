@@ -124,6 +124,20 @@ class Event:
 class EventBus:
     """Thread-safe event bus with persistent disk backing."""
 
+    #: Rotate once the live log passes this size, keeping one previous generation
+    #: as ``events.jsonl.1``. Matches the convention already used for
+    #: ``routing_history.jsonl``, which had a ``.1`` while this log had none and
+    #: had grown to 37 MiB unbounded. Two generations bound worst-case disk use
+    #: at ~2x this value while still leaving a useful amount of history for
+    #: replay.
+    MAX_LOG_BYTES = 16 * 1024 * 1024
+
+    #: How far back from the end of the file to read when answering
+    #: get_recent_events(). Reading the whole file to return the last few hundred
+    #: rows cost ~0.5 s on a 37 MiB log, on an endpoint the UI polls; the tail is
+    #: the only part that can contain the newest events.
+    TAIL_READ_BYTES = 4 * 1024 * 1024
+
     def __init__(self, log_path: Path | None = None) -> None:
         self._log_path = log_path or (Path(__file__).resolve().parent.parent / "runtime" / "logs" / "events.jsonl")
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,10 +153,27 @@ class EventBus:
             if callback in self._subscribers:
                 self._subscribers.remove(callback)
 
+    def _rotate_if_needed(self) -> None:
+        """Move the live log aside once it exceeds MAX_LOG_BYTES.
+
+        Called with the lock held, so one writer rotates and the others append to
+        whatever file is current afterwards. Any failure here is swallowed: a log
+        that cannot be rotated must still accept events, because losing telemetry
+        is worse than an oversized file.
+        """
+        try:
+            if self._log_path.stat().st_size < self.MAX_LOG_BYTES:
+                return
+            previous = self._log_path.with_suffix(self._log_path.suffix + ".1")
+            self._log_path.replace(previous)
+        except OSError:
+            return
+
     def emit(self, event: Event) -> Event:
         line = json.dumps(event.to_dict()) + "\n"
 
         with self._lock:
+            self._rotate_if_needed()
             with open(self._log_path, "a", encoding="utf-8") as f:
                 f.write(line)
             for sub in self._subscribers:
@@ -175,18 +206,40 @@ class EventBus:
         return self.emit(evt)
 
     def get_recent_events(self, limit: int = 50) -> list[Event]:
+        """Return up to `limit` newest events, newest first.
+
+        Reads only the tail of the file. The previous implementation called
+        readlines() on the whole log and then sliced the last `limit` entries,
+        which loaded 37 MiB into memory to return 400 rows and cost ~0.5 s per
+        call on an endpoint the dashboard polls. Seeking to the last
+        TAIL_READ_BYTES gives identical results for any sane `limit`, because the
+        newest events are by construction at the end of an append-only log.
+        """
         if not self._log_path.exists():
             return []
-        events = []
+        events: list[Event] = []
         known_fields = {f.name for f in fields(Event)}
-        with open(self._log_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            for line in reversed(lines[-limit:]):
-                try:
-                    data = json.loads(line)
-                    data["event_type"] = EventType(data["event_type"])
-                    filtered = {k: v for k, v in data.items() if k in known_fields}
-                    events.append(Event(**filtered))
-                except Exception:
-                    pass
+        try:
+            with open(self._log_path, "rb") as fh:
+                size = fh.seek(0, 2)
+                start = max(0, size - self.TAIL_READ_BYTES)
+                fh.seek(start)
+                blob = fh.read()
+        except OSError:
+            return []
+        text = blob.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        # A non-zero offset almost certainly lands mid-line; that fragment is not
+        # valid JSON and would be silently discarded below, but dropping it
+        # explicitly keeps the intent clear.
+        if start > 0 and lines:
+            lines = lines[1:]
+        for line in reversed(lines[-limit:] if limit > 0 else lines):
+            try:
+                data = json.loads(line)
+                data["event_type"] = EventType(data["event_type"])
+                filtered = {k: v for k, v in data.items() if k in known_fields}
+                events.append(Event(**filtered))
+            except Exception:
+                pass
         return events

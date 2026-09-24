@@ -64,7 +64,12 @@
       dir: 'down',
       sitting: true,
       progress: 0,
-      bubble: null
+      bubble: null,
+      waypoints: [
+        { x: 48, y: 56, wait: 16, sit: true, bubble: null },
+        { x: 80, y: 76, wait: 6, sit: false, bubble: 'Meeting in 5!' },
+        { x: 48, y: 56, wait: 12, sit: true, bubble: null }
+      ]
     },
     {
       id: 'jim',
@@ -82,7 +87,12 @@
       dir: 'up',
       sitting: true,
       progress: 68,
-      bubble: 'awaiting'
+      bubble: 'awaiting',
+      waypoints: [
+        { x: 32, y: 204, wait: 14, sit: true, bubble: null },
+        { x: 70, y: 204, wait: 5, sit: false, bubble: 'Pranking Dwight' },
+        { x: 32, y: 204, wait: 10, sit: true, bubble: null }
+      ]
     },
     {
       id: 'pam',
@@ -100,7 +110,13 @@
       dir: 'down',
       sitting: false,
       progress: 52,
-      bubble: 'awaiting'
+      bubble: 'awaiting',
+      waypoints: [
+        { x: 184, y: 242, wait: 6, bubble: 'Reception' },
+        { x: 184, y: 190, wait: 4, bubble: 'Filing logs' },
+        { x: 210, y: 150, wait: 5, bubble: 'Copier duty' },
+        { x: 184, y: 190, wait: 3, bubble: null }
+      ]
     },
     {
       id: 'kevin',
@@ -118,7 +134,13 @@
       dir: 'right',
       sitting: false,
       progress: 35,
-      bubble: 'awaiting'
+      bubble: 'starting up',
+      waypoints: [
+        { x: 250, y: 256, wait: 5, bubble: 'Awaiting tasks' },
+        { x: 270, y: 240, wait: 7, bubble: 'Coffee time' },
+        { x: 220, y: 256, wait: 4, bubble: 'Balancing books' },
+        { x: 120, y: 260, wait: 4, bubble: null }
+      ]
     },
     {
       id: 'ryan',
@@ -136,7 +158,12 @@
       dir: 'up',
       sitting: true,
       progress: 20,
-      bubble: 'starting up'
+      bubble: 'starting up',
+      waypoints: [
+        { x: 160, y: 204, wait: 12, sit: true, bubble: null },
+        { x: 184, y: 180, wait: 5, sit: false, bubble: 'Networking' },
+        { x: 160, y: 204, wait: 10, sit: true, bubble: null }
+      ]
     },
     {
       id: 'stanley',
@@ -154,7 +181,12 @@
       dir: 'left',
       sitting: false,
       progress: 40,
-      bubble: 'starting up'
+      bubble: 'starting up',
+      waypoints: [
+        { x: 264, y: 256, wait: 8, bubble: 'Crosswords' },
+        { x: 210, y: 256, wait: 5, bubble: 'Water break' },
+        { x: 264, y: 240, wait: 7, bubble: null }
+      ]
     },
     {
       id: 'meredith',
@@ -172,7 +204,12 @@
       dir: 'up',
       sitting: true,
       progress: 75,
-      bubble: 'awaiting'
+      bubble: 'awaiting',
+      waypoints: [
+        { x: 224, y: 204, wait: 14, sit: true, bubble: null },
+        { x: 240, y: 170, wait: 5, sit: false, bubble: 'Supplier call' },
+        { x: 224, y: 204, wait: 12, sit: true, bubble: null }
+      ]
     },
     {
       id: 'dwight',
@@ -191,7 +228,12 @@
       sitting: true,
       progress: 30,
       bubble: 'starting up',
-      inRoster: false
+      inRoster: false,
+      waypoints: [
+        { x: 96, y: 204, wait: 10, sit: true, bubble: 'Security patrol' },
+        { x: 96, y: 160, wait: 5, sit: false, bubble: 'Inspecting floor' },
+        { x: 96, y: 204, wait: 10, sit: true, bubble: null }
+      ]
     },
     {
       id: 'toby',
@@ -210,7 +252,12 @@
       sitting: true,
       progress: 10,
       bubble: null,
-      inRoster: false
+      inRoster: false,
+      waypoints: [
+        { x: 320, y: 110, wait: 20, sit: true, bubble: null },
+        { x: 280, y: 110, wait: 6, sit: false, bubble: 'HR check' },
+        { x: 320, y: 110, wait: 15, sit: true, bubble: null }
+      ]
     }
   ];
 
@@ -391,12 +438,70 @@
     }
   }
 
+  // ── Character Movement & Waypoint Logic ────────────────────────────────────
+  function updateCharacterMotion(dt, timeS) {
+    for (const char of characters) {
+      if (!char.waypoints || char.waypoints.length === 0) continue;
+
+      if (char.pauseTimer === undefined) {
+        char.wpIndex = 0;
+        char.pauseTimer = char.waypoints[0].wait || 3;
+        char.targetX = char.waypoints[0].x;
+        char.targetY = char.waypoints[0].y;
+      }
+
+      if (char.pauseTimer > 0) {
+        char.pauseTimer -= dt;
+        char.isWalking = false;
+        continue;
+      }
+
+      const dx = char.targetX - char.x;
+      const dy = char.targetY - char.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist < 2) {
+        char.x = char.targetX;
+        char.y = char.targetY;
+        char.isWalking = false;
+
+        // Advance to next waypoint
+        char.wpIndex = (char.wpIndex + 1) % char.waypoints.length;
+        const nextWp = char.waypoints[char.wpIndex];
+        char.targetX = nextWp.x;
+        char.targetY = nextWp.y;
+        char.pauseTimer = nextWp.wait || 4;
+        if (nextWp.sit !== undefined) {
+          char.sitting = nextWp.sit;
+        }
+        if (nextWp.bubble !== undefined && !char.hasTaskBubble) {
+          char.bubble = nextWp.bubble;
+        }
+      } else {
+        char.sitting = false;
+        char.isWalking = true;
+        const speed = 22; // smooth walking speed in pixels/second
+        const step = Math.min(dist, speed * dt);
+        char.x += (dx / dist) * step;
+        char.y += (dy / dist) * step;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          char.dir = dy < 0 ? 'up' : 'down';
+        } else {
+          char.dir = 'down';
+        }
+      }
+    }
+  }
+
   // ── Render Loop ────────────────────────────────────────────────────────────
   function render(timeMs) {
     animationFrameId = requestAnimationFrame(render);
-    const dt = (timeMs - lastTime) / 1000;
+    const dt = Math.min((timeMs - lastTime) / 1000, 0.1);
     lastTime = timeMs;
     const timeS = timeMs / 1000;
+
+    // Advance dynamic character motion
+    updateCharacterMotion(dt, timeS);
 
     if (!ctx || !bgCanvas || !fgCanvas) return;
 
@@ -418,7 +523,9 @@
 
       // Animation frame selection
       let frameIndex = 0;
-      if (!char.sitting) {
+      if (char.isWalking) {
+        frameIndex = Math.floor(timeS * 4) % frameList.length;
+      } else if (!char.sitting) {
         // Gentle standing weight shift
         frameIndex = Math.floor(timeS * 1.5 + char.x) % frameList.length;
       }
@@ -458,85 +565,48 @@
     const container = document.getElementById('dunder-bubbles');
     if (!container) return;
 
-    // Check if bubbles already match our list of active bubbles matching reference image
-    const bubbleList = [
-      // Michael office wall indicator: clock icon + idle box + calendar icon
-      {
-        id: 'michael-wall-clock',
-        x: 48,
-        y: 28,
-        isCustom: true,
-        html: `
-          <div style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700;">
-            <i class="fa-regular fa-clock" style="color:#B91C1C; font-size:12px;"></i>
-            <span style="background:#FFF; border:1px solid #2B2118; padding:1px 4px; border-radius:3px;">idle</span>
-            <i class="fa-regular fa-calendar-days" style="color:#B91C1C; font-size:12px;"></i>
-          </div>
-        `
-      },
-      // Jim desk bubble: awaiting
-      { id: 'jim-bubble', x: 32, y: 190, text: 'awaiting', status: 'awaiting' },
-      // Ryan desk bubble: starting up with blue monitor icon
-      {
-        id: 'ryan-bubble',
-        x: 160,
-        y: 190,
-        isCustom: true,
-        html: `
-          <div class="dunder-bubble starting" style="position:static; transform:none; display:inline-flex; align-items:center; gap:3px;">
-            starting up <span class="bubble-icon"><i class="fa-solid fa-desktop"></i></span>
-          </div>
-        `
-      },
-      // Pam standing in aisle bubble: awaiting
-      { id: 'pam-bubble', x: 184, y: 228, text: 'awaiting', status: 'awaiting' },
-      // Breakroom doorway area (Kevin & Stanley): 3 stacked speech bubbles
-      { id: 'door-bubble-1', x: 260, y: 216, text: 'awaiting', status: 'awaiting' },
-      {
-        id: 'door-bubble-2',
-        x: 264,
-        y: 232,
-        isCustom: true,
-        html: `
-          <div class="dunder-bubble starting" style="position:static; transform:none; display:inline-flex; align-items:center; gap:3px;">
-            starting up <span class="bubble-icon"><i class="fa-solid fa-desktop"></i></span>
-          </div>
-        `
-      },
-      { id: 'door-bubble-3', x: 260, y: 248, text: 'starting up', status: 'starting' },
-      // Meredith desk bubble: awaiting
-      { id: 'meredith-bubble', x: 224, y: 190, text: 'awaiting', status: 'awaiting' }
-    ];
-
-    if (!container.dataset.initialized) {
-      container.innerHTML = '';
-      for (const b of bubbleList) {
-        const el = document.createElement('div');
-        el.id = b.id;
-        el.className = 'dunder-bubble ' + (b.status || '');
-        if (b.isCustom) {
-          el.innerHTML = b.html;
-          el.style.background = 'transparent';
-          el.style.border = 'none';
-          el.style.boxShadow = 'none';
-          el.style.padding = '0';
-        } else {
-          el.textContent = b.text;
-        }
-        el.style.left = (b.x / MAP_W) * 100 + '%';
-        el.style.top = (b.y / MAP_H) * 100 + '%';
-        container.appendChild(el);
-      }
-      container.dataset.initialized = 'true';
+    // Clock icon indicator for Michael's office wall
+    let clockEl = document.getElementById('michael-wall-clock');
+    if (!clockEl) {
+      clockEl = document.createElement('div');
+      clockEl.id = 'michael-wall-clock';
+      clockEl.style.position = 'absolute';
+      clockEl.style.left = (48 / MAP_W) * 100 + '%';
+      clockEl.style.top = (28 / MAP_H) * 100 + '%';
+      clockEl.innerHTML = `
+        <div style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700;">
+          <i class="fa-regular fa-clock" style="color:#B91C1C; font-size:12px;"></i>
+          <span style="background:#FFF; border:1px solid #2B2118; padding:1px 4px; border-radius:3px;">idle</span>
+          <i class="fa-regular fa-calendar-days" style="color:#B91C1C; font-size:12px;"></i>
+        </div>
+      `;
+      container.appendChild(clockEl);
     }
 
-    // Subtle gentle float
+    // Dynamic bubbles per character tracked above their current (x, y)
     const offset = Math.sin(timeS * 2) * 1.5;
-    for (const b of bubbleList) {
-      const el = document.getElementById(b.id);
-      if (el && !b.isCustom) {
-        el.style.transform = `translate(-50%, calc(-100% + ${offset}px))`;
+    for (const char of characters) {
+      const bubbleId = 'bubble-' + char.id;
+      let el = document.getElementById(bubbleId);
+      const bubbleText = char.bubble;
+
+      if (!bubbleText) {
+        if (el) el.style.display = 'none';
+        continue;
       }
+
+      if (!el) {
+        el = document.createElement('div');
+        el.id = bubbleId;
+        container.appendChild(el);
+      }
+
+      el.style.display = 'block';
+      el.textContent = bubbleText;
+      el.className = 'dunder-bubble ' + (char.status === 'working' ? 'starting' : 'awaiting');
+      el.style.left = (char.x / MAP_W) * 100 + '%';
+      el.style.top = ((char.y - 18) / MAP_H) * 100 + '%';
+      el.style.transform = `translate(-50%, calc(-100% + ${offset}px))`;
     }
   }
 
@@ -885,6 +955,37 @@
       if (ctxEl && state.overview) {
         const tokens = state.overview.today_tokens || 146000;
         ctxEl.textContent = `ctx ${(tokens / 1000).toFixed(0)}k/1000k (15%)`;
+      }
+
+      // Synchronize live tasks to characters & bottom roster strip
+      if (state.tasks && state.tasks.length > 0) {
+        const activeTasks = state.tasks.filter((t) => t.stage === 'running' || t.stage === 'queued' || t.stage === 'delivered');
+        for (const char of characters) {
+          const task = activeTasks.find((t) => {
+            const a = (t.agent || '').toLowerCase();
+            if (char.id === 'michael' && (a.includes('orchestrator') || a.includes('architect'))) return true;
+            if (char.id === 'jim' && (a.includes('kiro') || a.includes('cli'))) return true;
+            if (char.id === 'dwight' && (a.includes('antigravity') || a.includes('2077') || a.includes('2078'))) return true;
+            if (char.id === 'kevin' && (a.includes('cline') || a.includes('account-1') || a.includes('account-2'))) return true;
+            if (char.id === 'ryan' && (a.includes('account-3') || a.includes('api'))) return true;
+            return a.includes(char.id);
+          });
+
+          if (task) {
+            char.status = 'working';
+            char.action = task.title;
+            char.bubble = task.title.length > 20 ? task.title.slice(0, 18) + '...' : task.title;
+            char.hasTaskBubble = true;
+            char.progress = task.stage === 'running' ? 75 : 30;
+          } else {
+            char.hasTaskBubble = false;
+            if (!char.isGod) {
+              char.status = 'idle';
+              char.action = 'standby';
+            }
+          }
+        }
+        renderRosterStrip();
       }
 
       // If the user is viewing tasks or memory tab, update live

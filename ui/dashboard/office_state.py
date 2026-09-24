@@ -101,6 +101,13 @@ _MC_STAGE = {
 }
 _JOB_STAGE = {"pending": "queued", "running": "running", "completed": "done", "failed": "escalated", "cancelled": "escalated"}
 
+#: Stages that mean the task is finished, one way or another. Used to reconcile a
+#: swarm mirror that still claims a task is live against a Mission Control record
+#: that has already recorded a terminal outcome. "delivered" is deliberately NOT
+#: terminal: it means an Antigravity IDE delivery was recorded and a human has yet
+#: to work it, so it is still open.
+_TERMINAL_STAGES = frozenset({"done", "escalated"})
+
 _WS_RE = re.compile(r"\s+")
 # Matched against a stripped, length-capped line (see _handoff_line) so neither
 # pattern needs a trailing \s* or a lazy group; both stay linear on hostile input.
@@ -718,6 +725,10 @@ def build_office_state(
 
     tasks: list[dict] = []
     seen: set[str] = set()
+    # Swarm records first, and they win the id: the swarm pool carries fields
+    # Mission Control's own record does not have at all -- the sandbox branch,
+    # the per-account attempt trail, the provider-reported duration -- so
+    # dropping them in favour of the thinner MC record loses real information.
     for state, rec in swarm_records:
         try:
             t = normalize_swarm_task(state, rec, redactor)
@@ -727,15 +738,39 @@ def build_office_state(
         if t["id"] and t["id"] not in seen:
             seen.add(t["id"])
             tasks.append(t)
+    # Index what the swarm contributed so the MC pass below can reconcile a
+    # stale entry rather than being discarded wholesale by the id check.
+    swarm_by_id = {t["id"]: t for t in tasks}
     for normalize, items in ((normalize_mc_task, mc_tasks), (normalize_job, jobs)):
         for item in items or []:
             try:
                 t = normalize(item, redactor)
             except Exception:
                 continue
-            if t["id"] and t["id"] not in seen:
+            if not t["id"]:
+                continue
+            if t["id"] not in seen:
                 seen.add(t["id"])
                 tasks.append(t)
+                continue
+            # Same task in both stores. Keep the swarm record's richer fields,
+            # but let a terminal Mission Control status correct a swarm stage
+            # that still claims the work is live.
+            #
+            # The swarm pool is a file-per-state mirror: a task filed under
+            # in-progress stays there unless something moves the file, so a
+            # cancellation applied in Mission Control left the mirror asserting
+            # the task was still running. Observed live: task-32f08138 and
+            # task-6129613c were CANCELLED in MC yet the Office showed them as
+            # live work for days, which is what "the Office is out of sync with
+            # tasks" looked like. Only the stage is corrected, and only in that
+            # direction, so a genuinely running task is never marked finished by
+            # a lagging MC record.
+            existing = swarm_by_id.get(t["id"])
+            if existing is not None and t["stage"] in _TERMINAL_STAGES and existing["stage"] not in _TERMINAL_STAGES:
+                existing["stage"] = t["stage"]
+                existing["completed_at"] = existing["completed_at"] or t["completed_at"]
+                existing["_error"] = existing["_error"] or t["_error"]
     tasks.sort(key=_latest_ts, reverse=True)
     tasks = tasks[:MAX_TASKS]
 

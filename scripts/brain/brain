@@ -1,0 +1,413 @@
+#!/usr/bin/env bash
+# brain - operate the shared cross-agent memory store from a plain shell.
+#
+# The same store is exposed to Kiro CLI, Amazon Q, Antigravity, Cline and VS Code as an
+# MCP server named "brain". This wrapper is for the moments you are between
+# agents: one has exhausted its budget and you want to see or set the baton
+# yourself before starting the next one.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Pin the basic-memory data dir so the CLI and every agent's MCP server share one
+# database. basic_memory.config_models.resolve_data_dir() prefers
+# BASIC_MEMORY_CONFIG_DIR, then XDG_CONFIG_HOME/basic-memory, then
+# ~/.basic-memory. Agents launched from the desktop session export
+# XDG_CONFIG_HOME and a bare shell does not, so without this pin the two resolve
+# to different databases and each sees a different handoff baton. See
+# notes/two-basic-memory-homes-split-the-brain-index.
+export BASIC_MEMORY_CONFIG_DIR="${BASIC_MEMORY_CONFIG_DIR:-$HOME/.config/basic-memory}"
+
+if [ -n "${BM_BIN:-}" ]; then
+  BM="$BM_BIN"
+elif command -v basic-memory >/dev/null 2>&1; then
+  BM="$(command -v basic-memory)"
+else
+  BM="$HOME/.local/bin/basic-memory"
+fi
+
+PROJECT="${BRAIN_PROJECT:-brain}"
+BRAIN_DIR="${BRAIN_DIR:-$HOME/agentic-brain}"
+HANDOFF="$BRAIN_DIR/handoff/current.md"
+
+die() { printf 'brain: %s\n' "$1" >&2; exit 1; }
+
+bm() {
+  [ -x "$BM" ] || die "basic-memory not found at $BM (uv tool install basic-memory)"
+  "$BM" "$@" --project "$PROJECT"
+}
+
+usage() {
+  cat <<'EOF'
+brain - shared memory for every AI agent on this machine
+
+  brain status              health of the store and what is currently in flight
+  brain resume              print the current handoff briefing (read this first)
+  brain checkpoint [opts]   write the handoff baton (interactive or headless)
+  brain log [timeframe]     recent activity across all agents (default 7d)
+  brain find <query>        search the brain
+  brain archive <slug>      retire handoff/current to handoff/<date>-<slug> (never overwrites)
+  brain archive --auto      same, with the slug derived from the baton's H1
+  brain validate [--fix]    verify frontmatter, handoff schema and secrets (--fix repairs)
+  brain doctor              host environment analysis: can this host run the swarm?
+  brain providers [cmd]     manage provider accounts (list|test|add|remove|chat)
+                            an account is a worker on its own: no agent CLI needed
+  brain path                print the brain directory
+  brain ui [--port 3333]    launch local web dashboard
+  brain heal [--dry-run]    autonomous self-healing (schema, links, db, sidecar)
+  brain expand <query>      provenance-preserving 2-hop context expansion
+  brain lifecycle-plan <slug>  generate a non-mutating archive plan for handoff/current
+  brain plan <task>         generate a plan-only smart swarm and model-selection plan
+  brain orchestrator-mcp    run the local approval-gated Brain Orchestrator MCP server (stdio)
+  brain watch               run autonomous sentinel in continuous monitor mode
+  brain swarm [subcommand]  legacy task distribution & execution (use brain plan first)
+
+Checkpoint Options:
+  --task, -t <text>         Task description
+  --agent, -a <name>        Agent name (default: human (via brain cli))
+  --scope, -s <path>        Scope/environment (default: current directory)
+  --done, -d <text>         Completed milestone bullet
+  --next, -n <text>         Concrete next action
+  --blocker, -b <text>      Blocker statement (default: none)
+  --file, -f <path>         File modified
+  --command, -c <cmd>       Verification command
+  --decision <text>         Decision rationale
+  --status <state>          in-progress | blocked | done (default: in-progress)
+  (--done, --file, --command and --decision may be repeated)
+  The baton is validated before it is written; an invalid one is refused.
+  -                         Read complete markdown note from stdin
+
+Handoff flow when an agent runs out of budget:
+  1. in the dying agent:  "checkpoint to the brain"    (it calls write_note)
+  2. in the new agent:    "resume from the brain"      (it calls read_note)
+Both steps are also in each agent's rules file, so they should happen unprompted.
+EOF
+}
+
+cmd_status() {
+  printf '=== brain ===\n'
+  printf 'project : %s\n' "$PROJECT"
+  printf 'path    : %s\n' "$BRAIN_DIR"
+  printf 'notes   : %s markdown files\n' "$(find "$BRAIN_DIR" -name '*.md' 2>/dev/null | wc -l)"
+  printf '\n=== in flight ===\n'
+  if [ -f "$HANDOFF" ]; then
+    printf 'handoff/current, last written %s\n\n' "$(date -r "$HANDOFF" '+%Y-%m-%d %H:%M')"
+    grep -m1 '^# ' "$HANDOFF" 2>/dev/null || true
+    grep -E '^- \[(status|agent|next)\]' "$HANDOFF" 2>/dev/null || true
+  else
+    printf 'nothing in flight (no handoff/current) - next agent starts fresh\n'
+  fi
+  printf '\n=== index ===\n'
+  if [ -x "$BM" ]; then
+    "$BM" status 2>&1 | tail -15 || true
+  fi
+}
+
+GUARD="$SCRIPT_DIR/handoff_guard.py"
+
+guard() {
+  [ -f "$GUARD" ] || die "handoff guard not found at $GUARD"
+  python3 "$GUARD" "$@"
+}
+
+# The file on disk is the source of truth. basic-memory's read_note serves its
+# indexed copy, which can lag the file (notes/two-basic-memory-homes-split-the-
+# brain-index) or belong to a different store when BRAIN_DIR is overridden, so
+# the briefing is read from $HANDOFF directly.
+cmd_resume() {
+  [ -f "$HANDOFF" ] || die "no handoff/current - the brain has no task in flight"
+  guard brief "$HANDOFF" || true
+  printf '\n'
+  cat "$HANDOFF"
+}
+
+# A flag value is one observation line: a newline inside it would smuggle in a
+# second observation (e.g. a duplicate [status]) or break the note structure.
+oneline() {
+  local value="${1//$'\r'/ }"
+  printf '%s' "${value//$'\n'/ }"
+}
+
+cmd_checkpoint() {
+  local task="" agent="human (via brain cli)" scope="" next="" blocker="none" status="in-progress"
+  local -a dones=() files=() commands=() decisions=()
+  local read_stdin=false headless=false positional_task=""
+  scope="$(pwd)"
+
+  need_value() { [ $# -ge 2 ] || die "checkpoint: $1 needs a value"; }
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -)
+        read_stdin=true
+        headless=true
+        shift
+        ;;
+      --task|-t)     need_value "$@"; task="$(oneline "$2")"; headless=true; shift 2 ;;
+      --agent|-a)    need_value "$@"; agent="$(oneline "$2")"; headless=true; shift 2 ;;
+      --scope|-s)    need_value "$@"; scope="$(oneline "$2")"; headless=true; shift 2 ;;
+      --done|-d)     need_value "$@"; dones+=("$(oneline "$2")"); headless=true; shift 2 ;;
+      --next|-n)     need_value "$@"; next="$(oneline "$2")"; headless=true; shift 2 ;;
+      --blocker|-b)  need_value "$@"; blocker="$(oneline "$2")"; headless=true; shift 2 ;;
+      --file|-f)     need_value "$@"; files+=("$(oneline "$2")"); headless=true; shift 2 ;;
+      --decision)    need_value "$@"; decisions+=("$(oneline "$2")"); headless=true; shift 2 ;;
+      --command|-c)  need_value "$@"; commands+=("$(oneline "$2")"); headless=true; shift 2 ;;
+      --status)      need_value "$@"; status="$(oneline "$2")"; headless=true; shift 2 ;;
+      --help|-h)
+        usage
+        return 0
+        ;;
+      *)
+        if [ -z "$positional_task" ]; then
+          positional_task="$(oneline "$1")"
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  # If not headless, check if stdin is piped (non-interactive pipe)
+  if [ "$headless" = false ] && [ ! -t 0 ]; then
+    read_stdin=true
+    headless=true
+  fi
+
+  local tmp expect_sha=""
+  tmp="$(mktemp --suffix=.md)"
+  trap 'rm -f "${tmp:-}"' EXIT
+
+  if [ "$read_stdin" = true ]; then
+    cat > "$tmp"
+  elif [ "$headless" = true ]; then
+    local final_task="${task:-${positional_task:-<task in one line>}}"
+    {
+      printf -- '---\ntitle: current\ntype: handoff\ntags: [handoff, active]\n---\n\n'
+      printf -- '# %s\n\n## Observations\n' "$final_task"
+      printf -- '- [status] %s\n- [agent] %s\n- [scope] %s\n' "$status" "$agent" "$scope"
+      local item
+      if [ "${#dones[@]}" -eq 0 ]; then
+        printf -- '- [done] \n'   # left empty on purpose: validation names the missing flag
+      fi
+      for item in "${dones[@]}"; do printf -- '- [done] %s\n' "$item"; done
+      printf -- '- [next] %s\n' "$next"
+      for item in "${files[@]}"; do printf -- '- [file] %s\n' "$item"; done
+      for item in "${commands[@]}"; do printf -- '- [command] %s\n' "$item"; done
+      printf -- '- [blocker] %s\n' "$blocker"
+      for item in "${decisions[@]}"; do printf -- '- [decision] %s\n' "$item"; done
+      printf -- '\n## Relations\n- relates_to [[projects/agentic-os]]\n'
+    } > "$tmp"
+  else
+    local final_task="${positional_task:-}"
+    if [ -f "$HANDOFF" ] && [ -z "$final_task" ]; then
+      cp "$HANDOFF" "$tmp"          # amend the existing baton
+      expect_sha="$(guard sha "$HANDOFF")"
+    else
+      cat > "$tmp" <<EOF
+---
+title: current
+type: handoff
+tags: [handoff, active]
+---
+
+# ${final_task:-<task in one line>}
+
+## Observations
+- [status] in-progress
+- [agent] human (via brain cli)
+- [scope] $(pwd)
+- [done]
+- [next]
+- [file]
+- [command]
+- [blocker] none
+- [decision]
+
+## Relations
+- relates_to [[projects/agentic-os]]
+EOF
+      expect_sha="$(guard sha "$HANDOFF")"
+    fi
+    "${EDITOR:-vi}" "$tmp"
+    # Optional fields left blank in the template are dropped, not saved empty.
+    sed -i -E '/^- \[(file|command|decision)\][[:space:]]*$/d' "$tmp"
+  fi
+
+  mkdir -p "$(dirname "$HANDOFF")"
+  local -a commit_args=(commit --draft "$tmp" --dest "$HANDOFF")
+  [ "$headless" = false ] && commit_args+=(--expect-sha "$expect_sha")
+  if ! guard "${commit_args[@]}"; then
+    if [ "$headless" = false ]; then
+      local keep="${HANDOFF%/*}/.checkpoint-draft-$$.txt"
+      cp "$tmp" "$keep" && printf 'brain: your draft was kept at %s\n' "$keep" >&2
+    fi
+    exit 1
+  fi
+  rm -f "$tmp"
+  trap - EXIT
+  printf 'checkpoint written to handoff/current\n'
+}
+
+cmd_archive() {
+  local slug="${1:-}"
+  if [ -z "$slug" ] || [ "$slug" = "--auto" ]; then
+    local suggested=""
+    [ -f "$HANDOFF" ] && suggested="$(guard slug "$HANDOFF" 2>/dev/null || true)"
+    if [ "$slug" = "--auto" ] && [ -n "$suggested" ]; then
+      slug="$suggested"
+    elif [ -n "$suggested" ]; then
+      die "usage: brain archive <slug>|--auto   (suggested: brain archive $suggested)"
+    else
+      die "usage: brain archive <slug>|--auto"
+    fi
+  fi
+  [ -f "$HANDOFF" ] || die "no handoff/current to archive"
+
+  local dest
+  dest="$(guard archive --brain-dir "$BRAIN_DIR" --slug "$slug")" || exit 1
+
+  if [ -x "$BM" ]; then
+    "$BM" reindex -p "$PROJECT" --full 2>/dev/null || "$BM" reindex --full 2>/dev/null || true
+  fi
+  case "$dest" in "$HOME"/*) dest="~${dest#"$HOME"}" ;; esac
+  printf 'archived to %s\nhandoff/current is now clear\n' "$dest"
+}
+
+cmd_validate() {
+  local fix=()
+  case "${1:-}" in
+    --fix) fix=(--fix) ;;
+    "") ;;
+    *) die "usage: brain validate [--fix]" ;;
+  esac
+  guard validate-store "$BRAIN_DIR" "${fix[@]}"
+}
+
+cmd_ui() {
+  local dashboard_script="$SCRIPT_DIR/dashboard.py"
+  if [ -f "$dashboard_script" ]; then
+    exec python3 "$dashboard_script" "$@"
+  else
+    die "dashboard server not found at $dashboard_script (Milestone 3 feature)"
+  fi
+}
+
+
+cmd_heal() {
+  local sentinel_script="$SCRIPT_DIR/sentinel.py"
+  [ -f "$sentinel_script" ] || die "sentinel not found at $sentinel_script"
+  "$sentinel_script" "$@"
+}
+
+cmd_expand() {
+  local cog_script="$SCRIPT_DIR/cognitive_engine.py"
+  [ -f "$cog_script" ] || die "cognitive engine not found at $cog_script"
+  "$cog_script" "$@"
+}
+
+cmd_lifecycle_plan() {
+  local slug="${1:-}"
+  [ -n "$slug" ] || die "usage: brain lifecycle-plan <lowercase-kebab-slug>"
+  [ -f "$HANDOFF" ] || die "no handoff/current to plan for"
+  python3 - "$SCRIPT_DIR" "$slug" "$HANDOFF" <<'PY'
+import sys
+from datetime import date
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from lifecycle import build_archive_plan
+print(__import__('json').dumps(build_archive_plan(sys.argv[2], Path(sys.argv[3]).read_bytes(), date.today()).to_dict(), indent=2))
+PY
+}
+
+cmd_plan() {
+  [ -n "${1:-}" ] || die "usage: brain plan <task>"
+  local planner="$SCRIPT_DIR/orchestrator.py"
+  [ -f "$planner" ] || die "orchestrator not found at $planner"
+  python3 "$planner" "$*"
+}
+
+cmd_orchestrator_mcp() {
+  local server="$SCRIPT_DIR/orchestrator_mcp.py"
+  local runtime="$HOME/.local/share/uv/tools/basic-memory/bin/python"
+  [ -f "$server" ] || die "orchestrator MCP server not found at $server"
+  [ -x "$runtime" ] || die "Basic Memory Python runtime not found at $runtime"
+  exec "$runtime" "$server"
+}
+
+cmd_swarm() {
+  local swarm_script="$SCRIPT_DIR/swarm.py"
+  [ -f "$swarm_script" ] || die "swarm engine not found at $swarm_script"
+  "$swarm_script" "$@"
+}
+
+# doctor now answers "can this host do the work?" — a full environment
+# analysis (host, IDEs, agent CLIs, MCP wiring, provider accounts, store,
+# verdict) — and still runs basic-memory's own file<->index doctor as one
+# section so nothing is lost. Flags (--json, --test-accounts) pass through.
+cmd_providers() {
+  # Provider accounts are the CLI-free worker path: registering a key makes the
+  # swarm usable on a host where no agent CLI or IDE is installed. This wraps
+  # providers.py so `brain doctor` and the swarm's "no worker" message can point
+  # at a command that actually exists.
+  local script="$SCRIPT_DIR/providers.py"
+  [ -f "$script" ] || die "providers not found at $script"
+  python3 "$script" "${@:-list}"
+}
+
+cmd_doctor() {
+  local doctor_script="$SCRIPT_DIR/doctor.py"
+  [ -f "$doctor_script" ] || die "doctor not found at $doctor_script"
+
+  # The environment analysis is the primary report and sets the exit status.
+  # Run it under whatever python3 the host has (doctor.py is stdlib-only).
+  local rc=0
+  python3 "$doctor_script" "$@" || rc=$?
+
+  # basic-memory's own index-consistency doctor is retained as a final
+  # section. It is informational: never let its status mask the verdict, and
+  # skip it in --json mode so machine output stays valid JSON.
+  case " $* " in
+    *" --json "*) : ;;
+    *)
+      printf '\n%s\n' "================================================================"
+      printf '  basic-memory doctor (file <-> index consistency)\n'
+      printf '%s\n' "================================================================"
+      if [ -x "$BM" ]; then
+        "$BM" doctor || true
+      else
+        printf '    basic-memory not found at %s — section skipped\n' "$BM"
+      fi
+      ;;
+  esac
+
+  return "$rc"
+}
+
+cmd_watch() {
+  local sentinel_script="$SCRIPT_DIR/sentinel.py"
+  [ -f "$sentinel_script" ] || die "sentinel not found at $sentinel_script"
+  "$sentinel_script" --watch "$@"
+}
+
+case "${1:-}" in
+  status)     shift; cmd_status ;;
+  resume)     shift; cmd_resume ;;
+  checkpoint) shift; cmd_checkpoint "$@" ;;
+  archive)    shift; cmd_archive "${1:-}" ;;
+  validate)   shift; cmd_validate "$@" ;;
+  log)        shift; bm tool recent-activity --timeframe "${1:-7d}" --plain ;;
+  find)       shift; [ -n "${1:-}" ] || die "usage: brain find <query>"; bm tool search-notes "$*" --plain ;;
+  doctor)     shift; cmd_doctor "$@" ;;
+  providers)  shift; cmd_providers "$@" ;;
+  path)       printf '%s\n' "$BRAIN_DIR" ;;
+  ui)         shift; cmd_ui "$@" ;;
+  heal)       shift; cmd_heal "$@" ;;
+  expand)     shift; cmd_expand "$@" ;;
+  lifecycle-plan) shift; cmd_lifecycle_plan "${1:-}" ;;
+  plan)       shift; cmd_plan "$@" ;;
+  orchestrator-mcp) shift; cmd_orchestrator_mcp "$@" ;;
+  watch)      shift; cmd_watch "$@" ;;
+  swarm)      shift; cmd_swarm "$@" ;;
+  ""|-h|--help|help) usage ;;
+  *)          die "unknown command '$1' (try: brain help)" ;;
+esac

@@ -1,0 +1,32 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Editor/tool backups — snapshots of working files, not source
+*.bak
+*.bak-*
+*.orig
+*.tmp
+
+# Playwright E2E: dependencies and run artifacts
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+e2e/.cache/
+
+# Local runtime state. The brain store itself lives at ~/agentic-brain and is
+# deliberately outside this repo; nothing here should capture it.
+*.log
+*.db
+*.sqlite3
+.venv/
+venv/
+
+# Credentials must never enter this repo. The swarm reads keys from files under
+# ~/.config and ~/.gemini by design; these patterns are a backstop.
+*.key
+*token*
+.env
+.env.*
+providers.json

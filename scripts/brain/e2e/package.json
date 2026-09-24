@@ -1,0 +1,16 @@
+{
+  "name": "brain-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright E2E suite for the Shared Brain dashboard (UI + JSON API)",
+  "scripts": {
+    "test": "playwright test",
+    "test:api": "playwright test tests/api.spec.js",
+    "test:ui": "playwright test tests/dashboard.spec.js",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

@@ -1,0 +1,16 @@
+/* Local vendored fonts — replaces fonts.googleapis.com / fonts.gstatic.com.
+   Variable woff2 (latin subset) covers all weights used by the dashboard. */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/static/plus-jakarta-sans-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/static/jetbrains-mono-latin.woff2') format('woff2');
+}
