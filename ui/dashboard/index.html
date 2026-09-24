@@ -3662,6 +3662,35 @@
         </div>`;
     }
 
+    // Mission Control keeps its own handoff record; when it has none, show the
+    // shared brain's baton (~/agentic-brain/handoff/current.md, read by the
+    // Office snapshot) so the card is not blank while an agent is mid-task.
+    async function opsBrainBatonHero() {
+      try {
+        const res = await fetchWithAuth('/api/office/state');
+        if (!res.ok) return null;
+        const h = ((await res.json()) || {}).handoff || {};
+        if (!h.title && !h.next) return null;
+        return `<div class="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="ops-eyebrow"><i class="fa-solid fa-brain" aria-hidden="true"></i> Next step from the shared brain baton</div>
+            <div class="ops-next">${h.next ? ui.esc(h.next) : '<span class="ui-muted">No next step was recorded.</span>'}</div>
+            <p class="ui-help">${h.title ? ui.esc(h.title) : ''}${h.agent ? ' · by ' + ui.esc(h.agent) : ''}${h.status ? ' · ' + ui.esc(h.status) : ''}${h.updated_at ? ' · ' + ui.timeTag(h.updated_at) : ''}</p>
+          </div>
+          <button type="button" class="ui-btn ui-btn-secondary" onclick="showTab('office')">Open Office</button>
+        </div>`;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function opsRenderDashHandoff(el, data) {
+      el.innerHTML = opsHandoffHero(data);
+      if (data && data.record) return;
+      const brain = await opsBrainBatonHero();
+      if (brain) el.innerHTML = brain;
+    }
+
     // Throttled: renderOverview runs on every 3s poll, the handoff changes rarely.
     async function loadDashboardHandoff(force = false) {
       const el = document.getElementById('dash-handoff');
@@ -3670,7 +3699,7 @@
       OPS.handoffLoading = true;
       try {
         const data = await opsJson('/api/handoff');
-        el.innerHTML = opsHandoffHero(data);
+        await opsRenderDashHandoff(el, data);
       } catch (err) {
         ui.error(el, err, () => loadDashboardHandoff(true));
       } finally {
@@ -4916,7 +4945,7 @@
         if (hContent) hContent.innerHTML = opsSafeMarkdown(handoffData.markdown || 'No active handoff record.');
         const dash = document.getElementById('dash-handoff');
         if (dash) {
-          dash.innerHTML = opsHandoffHero(handoffData);
+          opsRenderDashHandoff(dash, handoffData);
           OPS.handoffFetchedAt = Date.now();
         }
       } catch (err) {
