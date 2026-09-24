@@ -8,9 +8,11 @@
   <link rel="stylesheet" href="/static/fontawesome.css">
   <link rel="stylesheet" href="/static/fonts.css">
   <link rel="stylesheet" href="/static/ui-kit.css">
+  <link rel="stylesheet" href="/static/office.css">
   <script src="/static/marked.min.js"></script>
   <script src="/static/force-graph.min.js"></script>
   <script src="/static/ui-kit.js"></script>
+  <script src="/static/office.js" defer></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -439,6 +441,9 @@
         <button type="button" onclick="showTab('dashboard')" class="tab-btn shell-nav-item tab-active" data-tab="dashboard" aria-current="page" title="Overview (g then d)" aria-keyshortcuts="g d">
           <i class="fa-solid fa-gauge-high shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Overview</span>
         </button>
+        <button type="button" onclick="showTab('office')" class="tab-btn shell-nav-item" data-tab="office" title="Office floor (g then v)" aria-keyshortcuts="g v">
+          <i class="fa-solid fa-building-user shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Office</span>
+        </button>
         <button type="button" onclick="showTab('events')" class="tab-btn shell-nav-item" data-tab="events" title="Activity log (g then e)" aria-keyshortcuts="g e">
           <i class="fa-solid fa-bolt shell-nav-icon" aria-hidden="true"></i><span class="shell-nav-label">Activity log</span>
           <span id="sidebar-live-pip" class="shell-live-pip" data-state="connecting" title="Live event stream status"></span>
@@ -739,6 +744,64 @@
       </section>
 
       <!-- 2. AGENTS & ACCOUNT REGISTRY TAB -->
+      <!-- OFFICE: pixel-art floor of agents, tasks and routing. Logic in
+           static/office.js (reads GET /api/office/state; demo when absent). -->
+      <section id="tab-office" data-tab="office" class="tab-pane hidden space-y-6"><div id="office"></div>
+        <header class="ui-page-header">
+          <div>
+            <h2 class="ui-page-title">Office</h2>
+            <p class="ui-page-desc">Every agent has a desk and every task is a paper card: it lands in the Inbox, the Router picks an agent and model, the agent works it at its desk, and it ends on the Done shelf or in Escalations.</p>
+          </div>
+          <div class="ops-toolbar">
+            <span id="office-status" class="ops-pill ops-pill-idle" role="status"><span class="ui-dot" aria-hidden="true"></span><span id="office-status-text">Connecting…</span></span>
+            <button type="button" id="office-motion-btn" class="ui-btn ui-btn-secondary" aria-pressed="false">
+              <i class="fa-solid fa-pause" aria-hidden="true"></i> Pause motion
+            </button>
+            <button type="button" id="office-refresh-btn" class="ui-btn ui-btn-secondary">
+              <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh
+            </button>
+          </div>
+        </header>
+
+        <div id="office-banner" class="office-banner" role="status" hidden></div>
+        <div id="office-stats" class="office-stats" aria-label="Floor summary"></div>
+
+        <div class="office-layout">
+          <div class="min-w-0">
+            <div id="office-stage" class="office-stage">
+              <canvas id="office-canvas" role="img" aria-label="Office floor: loading"></canvas>
+              <div id="office-hotspots" class="office-hotspots" role="group" aria-label="Agents and stations on the office floor"></div>
+            </div>
+            <p class="office-hint">Click an agent, a card or a station for details. Keyboard: Tab through the floor, Enter to open.</p>
+          </div>
+          <aside id="office-panel" class="ui-card office-panel" aria-live="polite" aria-label="Office details">
+            <div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading the office…</span></div>
+          </aside>
+        </div>
+
+        <details id="office-legend" class="ui-card office-legend">
+          <summary><i class="fa-solid fa-circle-info" aria-hidden="true"></i> How it works</summary>
+          <ol class="office-steps">
+            <li><b>Dispatch.</b> A task arrives in the <b>Inbox</b> as a paper card &mdash; from the Overview dispatch box, a job, or <code>brain swarm dispatch</code>.</li>
+            <li><b>Router.</b> The router reads the task and picks the agent that fits it best: terminal and test work, focused code edits, or multi-file architecture. Its choice, confidence and reason show on the router desk.</li>
+            <li><b>Model policy.</b> The task gets a capability tier (fast, balanced, advanced, frontier) that is mapped to a concrete model for that agent &mdash; the coloured chip.</li>
+            <li><b>Agent in a sandbox.</b> The card moves to the agent's desk. Headless agents work in a throwaway git worktree on a <code>brain/swarm/&lt;task&gt;</code> branch, so your own checkout is never touched. The thought bubble shows the task and model.</li>
+            <li><b>Result or escalation.</b> Finished work goes to the <b>Done</b> shelf for review. A blocked agent raises a red <b>!</b> and its card goes to <b>Escalations</b>. If an account hits a quota wall the card hops to another account's desk (failover). Tasks for the Antigravity IDE arrive as an <b>envelope</b> and wait for a person to work them.</li>
+            <li><b>Memory and handoff.</b> What the agent learned is filed in the <b>Memory</b> cabinet, and the <b>Handoff</b> board on the wall shows the current baton's next step, so any agent can pick up where the last one stopped.</li>
+          </ol>
+          <div class="office-key" aria-label="Key">
+            <span><span class="office-swatch" style="background:#06B6D4"></span>Working: typing, with a thought bubble</span>
+            <span><span class="office-swatch" style="background:#A1A1AA"></span>Idle: sitting at the desk</span>
+            <span><span class="office-swatch" style="background:#EF4444"></span>Blocked: red "!" above the head</span>
+            <span><span class="office-swatch" style="background:#52525B"></span>Offline: greyed out, laptop closed</span>
+            <span><span class="office-swatch" style="background:#F5F1E6;border-top:3px solid #22C55E"></span>Card edge: green done, red escalated, cyan queued</span>
+            <span><span class="office-swatch" style="background:#E7E0CF"></span>Envelope: delivered to the IDE, waiting for a person</span>
+          </div>
+        </details>
+
+        <div id="office-sr" class="sr-only" aria-live="polite"></div>
+      </section>
+
       <section id="tab-agents" data-tab="agents" class="tab-pane hidden space-y-6"><div id="agents"></div>
         <header class="ui-page-header">
           <div>
@@ -2468,6 +2531,7 @@
     // Labels shown in the header for each tab; keys are the data-tab values.
     const SHELL_TABS = {
       'dashboard':    ['Overview', 'Pipeline, fleet and routing at a glance'],
+      'office':       ['Office', 'A live floor plan of agents, tasks and routing'],
       'events':       ['Activity log', 'Every event from agents and tasks, as it happens'],
       'flow':         ['Execution flow', 'How a task moves from intake to result'],
       'tasks':        ['Tasks', 'Queued, running, finished and failed tasks'],
@@ -2530,6 +2594,7 @@
       else if (tabId === 'routing') loadRoutingHistory();
       else if (tabId === 'tokens') loadTokensTelemetry();
       else if (tabId === 'worktrees') loadWorktrees();
+      else if (tabId === 'office') { /* static/office.js polls /api/office/state while visible */ }
       else refreshData();
     }
 
@@ -2660,6 +2725,7 @@
         clearTimeout(gTimeout);
         const map = {
           'd': 'dashboard',
+          'v': 'office',
           'a': 'agents',
           'f': 'flow',
           't': 'tasks',
@@ -2810,6 +2876,12 @@
           } catch (feedErr) {
             console.error('appendLifecycleFeed failed (feed only, refresh continues):', feedErr);
           }
+        }
+        // The Office floor refetches its own state on task/job/routing events.
+        try {
+          if (window.MCOffice) window.MCOffice.onEvent(evt);
+        } catch (officeErr) {
+          console.error('MCOffice.onEvent failed (office only, refresh continues):', officeErr);
         }
         if (
           eTypeUpper.startsWith('TASK') ||
