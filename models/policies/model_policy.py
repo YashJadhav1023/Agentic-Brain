@@ -150,6 +150,20 @@ ANTIGRAVITY_ACCOUNT_3_CATALOG: tuple[ModelSpec, ...] = tuple(
     for spec in ANTIGRAVITY_ACCOUNT_1_CATALOG
 )
 
+ANTIGRAVITY_ACCOUNT_2077_MODELS: set[str] = {
+    "gemini-3.8-flash-medium",
+    "gemini-3.7-flash-high",
+    "gemini-3.7-flash-medium",
+    "gemini-3.1-pro-high",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6-thinking",
+}
+
+ANTIGRAVITY_ACCOUNT_2077_CATALOG: tuple[ModelSpec, ...] = tuple(
+    spec for spec in ANTIGRAVITY_ACCOUNT_1_CATALOG
+    if spec.name in ANTIGRAVITY_ACCOUNT_2077_MODELS
+)
+
 AGENT_CATALOGS: dict[str, tuple[ModelSpec, ...]] = {
     AgentTarget.KIRO_CLI.value: KIRO_CATALOG,
     AgentTarget.CLINE.value: CLINE_CATALOG,
@@ -158,6 +172,8 @@ AGENT_CATALOGS: dict[str, tuple[ModelSpec, ...]] = {
     AgentTarget.ANTIGRAVITY_ACCOUNT_2.value: ANTIGRAVITY_ACCOUNT_2_CATALOG,
     AgentTarget.ANTIGRAVITY_IDE.value: ANTIGRAVITY_ACCOUNT_2_CATALOG,
     AgentTarget.ANTIGRAVITY_ACCOUNT_3.value: ANTIGRAVITY_ACCOUNT_3_CATALOG,
+    "antigravity-account-2077": ANTIGRAVITY_ACCOUNT_2077_CATALOG,
+    "antigravity-account-2078": ANTIGRAVITY_ACCOUNT_2077_CATALOG,
 }
 
 
@@ -177,10 +193,25 @@ def select_model(
     action: Action | str = Action.IMPLEMENT,
     risk: Risk | str = Risk.LOW,
     specialization: Specialization | str = Specialization.GENERAL,
+    allowed_models: list[str] | set[str] | tuple[str, ...] | None = None,
 ) -> ModelDecision:
     """Select the optimal model for the target agent based on task parameters."""
     agent_key = agent.value if isinstance(agent, AgentTarget) else str(agent)
     catalog = AGENT_CATALOGS.get(agent_key)
+    if not catalog:
+        if agent_key.startswith("cline"):
+            catalog = CLINE_CATALOG
+        elif agent_key.startswith("antigravity-account-2077") or agent_key.startswith("antigravity-account-2078"):
+            catalog = ANTIGRAVITY_ACCOUNT_2077_CATALOG
+        elif agent_key.startswith("antigravity"):
+            catalog = ANTIGRAVITY_ACCOUNT_1_CATALOG
+        elif agent_key.startswith("kiro"):
+            catalog = KIRO_CATALOG
+    if catalog and allowed_models:
+        allowed_set = set(allowed_models)
+        filtered = tuple(m for m in catalog if m.name in allowed_set)
+        if filtered:
+            catalog = filtered
     if not catalog:
         # Default fallback
         return ModelDecision(

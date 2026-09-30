@@ -299,6 +299,18 @@
       border-radius: 0 3px 3px 0; background: #fff;
     }
     .shell-nav-item.tab-active .shell-nav-icon { color: #fff; }
+    .shell-nav {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.15) transparent;
+    }
+    .shell-nav::-webkit-scrollbar { width: 4px; }
+    .shell-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+    @media (max-height: 900px) {
+      .shell-nav { padding: .4rem .5rem .75rem; }
+      .shell-nav-heading { padding: .6rem .5rem .2rem; font-size: .62rem; }
+      .shell-nav-item { min-height: 2rem; padding: .25rem .5rem; font-size: .8rem; gap: .5rem; }
+      .shell-nav-icon { font-size: .75rem; }
+    }
     .shell-count {
       min-width: 1.5rem; padding: .05rem .45rem; border-radius: 999px; text-align: center;
       font-size: .68rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;
@@ -643,6 +655,17 @@
           <div class="ui-state" role="status"><span class="ui-spinner" aria-hidden="true"></span><span>Loading the current handoff…</span></div>
         </div>
 
+        <!-- Needs attention strip: shown when tasks need approval or have failed recently -->
+        <div id="dash-needs-attention" class="hidden my-3 p-3 rounded-lg border border-amber-500/40 bg-amber-950/20 text-amber-200 text-xs sm:text-sm flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5">
+            <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base" aria-hidden="true"></i>
+            <span id="dash-needs-attention-text">Tasks require operator attention.</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" class="ui-btn ui-btn-sm ui-btn-secondary" onclick="opsOpenTasks('running')">Review in Tasks</button>
+          </div>
+        </div>
+
         <!-- At-a-glance stat tiles (each opens the tab with the detail) -->
         <div class="ops-stats">
           <button type="button" class="ui-stat ops-stat-link" onclick="showTab('agents')" title="Open Agents">
@@ -650,12 +673,12 @@
             <div id="stat-accounts" class="ui-stat-value">—</div>
             <div id="stat-accounts-sub" class="ui-stat-hint">Checking accounts…</div>
           </button>
-          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tasks')" title="Open Tasks">
+          <button type="button" class="ui-stat ops-stat-link" onclick="opsOpenTasks('running')" title="Open Tasks running">
             <div class="ui-stat-label">Tasks running</div>
             <div id="stat-tasks" class="ui-stat-value">—</div>
             <div id="stat-tasks-sub" class="ui-stat-hint">Loading tasks…</div>
           </button>
-          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tasks')" title="Open Tasks">
+          <button type="button" class="ui-stat ops-stat-link" onclick="opsOpenTasks('failed')" title="Open Tasks failed">
             <div class="ui-stat-label">Tasks failed</div>
             <div id="stat-failed" class="ui-stat-value">—</div>
             <div id="stat-failed-sub" class="ui-stat-hint">Failed, cancelled or out of budget</div>
@@ -665,10 +688,10 @@
             <div id="stat-memory" class="ui-stat-value">—</div>
             <div id="stat-memory-sub" class="ui-stat-hint">Facts every agent can recall</div>
           </button>
-          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('agents')" title="Open Agents">
-            <div class="ui-stat-label">Worker adapters</div>
-            <div id="stat-workers" class="ui-stat-value">—</div>
-            <div id="stat-workers-sub" class="ui-stat-hint">Loaded and ready to run</div>
+          <button type="button" class="ui-stat ops-stat-link" onclick="showTab('mc-providers')" title="Open Providers">
+            <div class="ui-stat-label">Providers up</div>
+            <div id="stat-providers" class="ui-stat-value">—</div>
+            <div id="stat-providers-sub" class="ui-stat-hint">Active provider connections</div>
           </button>
           <button type="button" class="ui-stat ops-stat-link" onclick="showTab('tokens')" title="Open Tokens">
             <div class="ui-stat-label">Tokens today</div>
@@ -848,8 +871,12 @@
           </div>
 
           <!-- Bottom Agent Roster Strip -->
-          <div class="dunder-roster-strip" id="dunder-roster-strip">
-            <!-- Dynamic Agent Cards -->
+          <div class="dunder-roster-wrapper relative">
+            <button type="button" id="dunder-roster-prev" class="dunder-roster-scroll-btn left hidden" aria-label="Scroll roster left"><i class="fa-solid fa-chevron-left"></i></button>
+            <div class="dunder-roster-strip" id="dunder-roster-strip">
+              <!-- Dynamic Agent Cards -->
+            </div>
+            <button type="button" id="dunder-roster-next" class="dunder-roster-scroll-btn right hidden" aria-label="Scroll roster right"><i class="fa-solid fa-chevron-right"></i></button>
           </div>
         </div>
 
@@ -1766,7 +1793,7 @@
   <!-- ALL MODALS WITH PRESERVED FIELD IDS & SLEEK MATTE BLACK / MATTE WHITE BACKDROPS -->
 
   <!-- 1. Diff Viewer Modal (diff-modal: diff-code, diff-path) -->
-  <div id="diff-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-6">
+  <div id="diff-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-6" onclick="if (event.target === this) closeDiffModal()">
     <div class="matte-card max-w-4xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden bg-[#121212] border border-[#262626]" onclick="event.stopPropagation()">
       <div class="p-6 border-b border-[#262626] flex items-center justify-between bg-[#161616]">
         <div>
@@ -1781,15 +1808,16 @@
   </div>
 
   <!-- 2. Task Detail Modal (task-modal: modal-task-title, modal-task-status, modal-task-subtasks, modal-task-retries, modal-task-agent, modal-task-input, modal-task-output, modal-task-error) -->
-  <div id="task-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-6">
+  <div id="task-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-6" onclick="if (event.target === this) closeTaskModal()">
     <div class="matte-card max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden bg-[#121212] border border-[#262626]" onclick="event.stopPropagation()">
       <div class="p-6 border-b border-[#262626] flex items-center justify-between bg-[#161616]">
         <div class="flex items-center gap-3">
+          <button type="button" onclick="closeTaskModal()" class="text-[#A1A1AA] hover:text-white text-xs font-mono px-2 py-1 rounded bg-[#202020] hover:bg-[#2a2a2a] border border-[#333333] transition flex items-center gap-1.5 cursor-pointer" title="Go back to tasks"><i class="fa-solid fa-arrow-left"></i> Back</button>
           <h3 id="modal-task-title" class="font-bold text-xs text-white font-mono uppercase tracking-wider">Task Details</h3>
           <span id="task-modal-title" class="hidden"></span>
           <span id="modal-task-status" class="px-2.5 py-0.5 rounded-full text-xs font-mono uppercase font-bold bg-[#181818] text-[#FAFAFA] border border-[#2E2E2E]">--</span>
         </div>
-        <button onclick="closeTaskModal()" class="text-[#A1A1AA] hover:text-white text-sm p-1.5 transition">✕</button>
+        <button onclick="closeTaskModal()" class="text-[#A1A1AA] hover:text-white text-sm p-1.5 transition cursor-pointer" aria-label="Close task details">✕</button>
       </div>
       <div class="p-8 overflow-auto text-xs space-y-6 font-mono bg-[#0A0A0A]">
         <div class="grid grid-cols-3 gap-4 p-4 rounded-lg bg-[#121212] border border-[#262626]">
@@ -2103,7 +2131,7 @@
   </div>
 
   <!-- 7. CONFIGURE QUOTA MODAL (add-quota-modal: quota-rule-name, quota-provider-id, quota-scope, quota-limit-tokens, quota-limit-cost, quota-period, quota-action) -->
-  <div id="add-quota-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-3 sm:p-6">
+  <div id="add-quota-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-3 sm:p-6" onclick="if (event.target === this) closeAddQuotaModal()">
     <div class="matte-card max-w-lg w-full p-5 sm:p-8 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto bg-[#121212] border border-[#262626]" onclick="event.stopPropagation()">
       <div class="flex items-center justify-between border-b border-[#262626] pb-4">
         <div><h3 class="font-bold text-sm text-white uppercase tracking-wider font-mono">Add a limit</h3><p class="text-xs text-[#A1A1AA] mt-1">Set a daily or monthly cap. Routing stops using the target once it is reached.</p></div>
@@ -2184,7 +2212,7 @@
   </div>
 
   <!-- 8. ROUTING DECISION INSPECT MODAL (routing-inspect-modal: routing-inspect-content) -->
-  <div id="routing-inspect-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-3 sm:p-6">
+  <div id="routing-inspect-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-3 sm:p-6" onclick="if (event.target === this) closeRoutingInspectModal()">
     <div class="matte-card max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden bg-[#121212] border border-[#262626]" onclick="event.stopPropagation()">
       <div class="p-6 border-b border-[#262626] flex items-center justify-between bg-[#161616]">
         <div>
@@ -2200,7 +2228,7 @@
   </div>
 
   <!-- 9. EDIT MODEL MODAL (edit-model-modal: edit-model-id, edit-model-name, edit-model-pricing-in, edit-model-pricing-out, edit-model-ctx) -->
-  <div id="edit-model-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-3 sm:p-6">
+  <div id="edit-model-modal" class="hidden fixed inset-0 bg-[#000000e6]  z-50 flex items-center justify-center p-3 sm:p-6" onclick="if (event.target === this) closeEditModelModal()">
     <div class="matte-card max-w-lg w-full p-5 sm:p-8 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto bg-[#121212] border border-[#262626]" onclick="event.stopPropagation()">
       <div class="flex items-center justify-between border-b border-[#262626] pb-4">
         <h3 class="font-bold text-sm text-white uppercase tracking-wider font-mono">Configure Model</h3>
@@ -2256,18 +2284,43 @@
 
   <!-- KEYBOARD SHORTCUTS DIALOG -->
   <div id="shortcuts-modal" class="hidden fixed inset-0 bg-[#000000cc] z-[65] flex items-center justify-center p-4" onclick="if (event.target === this) closeShortcuts()">
-    <div class="ui-card w-full max-w-md shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
-      <div class="ui-card-header">
+    <div class="ui-card w-full max-w-lg shadow-2xl max-h-[85vh] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+      <div class="ui-card-header flex-shrink-0">
         <h2 id="shortcuts-title" class="ui-card-title">Keyboard shortcuts</h2>
         <button type="button" class="shell-icon-btn" onclick="closeShortcuts()" aria-label="Close shortcuts"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
       </div>
-      <dl class="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm text-[#D4D4D8]">
-        <dt><kbd class="shell-kbd">/</kbd></dt><dd>Focus this page's search or filter box</dd>
-        <dt><kbd class="shell-kbd">g</kbd> then a letter</dt><dd>Go to a page (hover a sidebar item to see its letter)</dd>
-        <dt><kbd class="shell-kbd">Esc</kbd></dt><dd>Close a dialog, the menu, or leave a text box</dd>
-        <dt><kbd class="shell-kbd">?</kbd></dt><dd>Show this help</dd>
-      </dl>
-      <p class="ui-help mt-4">Pages have their own address, e.g. <span class="ui-mono">#tasks</span>, so you can bookmark them and use Back/Forward.</p>
+      <div class="overflow-y-auto space-y-4 pr-1">
+        <div>
+          <div class="text-xs uppercase font-bold text-slate-400 tracking-wider mb-2 font-mono">Actions</div>
+          <dl class="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm text-[#D4D4D8]">
+            <dt><kbd class="shell-kbd">n</kbd></dt><dd>Focus quick task input on Overview</dd>
+            <dt><kbd class="shell-kbd">/</kbd></dt><dd>Focus this page's search or filter box</dd>
+            <dt><kbd class="shell-kbd">Esc</kbd></dt><dd>Close dialog, leave text box, or close mobile drawer</dd>
+            <dt><kbd class="shell-kbd">?</kbd></dt><dd>Open this shortcuts guide</dd>
+          </dl>
+        </div>
+        <div class="border-t border-[#262626] pt-3">
+          <div class="text-xs uppercase font-bold text-slate-400 tracking-wider mb-2 font-mono">Navigation (press <kbd class="shell-kbd">g</kbd> then letter)</div>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-[#D4D4D8]">
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">d</kbd> Overview</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">v</kbd> Office floor</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">e</kbd> Activity log</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">f</kbd> Execution flow</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">t</kbd> Tasks</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">j</kbd> Jobs</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">w</kbd> Sandboxes</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">m</kbd> Shared memory</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">a</kbd> Agents</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">c</kbd> Accounts</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">p</kbd> Providers</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">o</kbd> Models</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">r</kbd> Routing</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">k</kbd> Tokens &amp; cost</div>
+            <div><kbd class="shell-kbd">g</kbd> <kbd class="shell-kbd">u</kbd> Quotas &amp; limits</div>
+          </div>
+        </div>
+      </div>
+      <p class="ui-help mt-3 pt-3 border-t border-[#262626] flex-shrink-0">Pages use URL hash deep links (e.g. <span class="ui-mono">#tasks</span>) with full browser history support.</p>
     </div>
   </div>
 
@@ -2538,7 +2591,7 @@
       return authPromise;
     }
 
-    async function fetchWithAuth(url, options = {}) {
+    async function fetchWithAuth(url, options = {}, _retry = 0) {
       if (!authToken) {
         await initAuth();
       }
@@ -2546,9 +2599,7 @@
       options.headers = options.headers || {};
       if (authToken) {
         if (options.headers instanceof Headers) {
-          if (!options.headers.has('Authorization')) {
-            options.headers.set('Authorization', `Bearer ${authToken}`);
-          }
+          options.headers.set('Authorization', `Bearer ${authToken}`);
         } else {
           options.headers['Authorization'] = `Bearer ${authToken}`;
         }
@@ -2557,11 +2608,17 @@
         options.headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(options.body);
       }
-      return _nativeFetch(url, options);
+      const res = await _nativeFetch(url, options);
+      if (res.status === 401 && _retry < 1 && url !== '/api/token') {
+        authToken = '';
+        await initAuth();
+        return fetchWithAuth(url, options, _retry + 1);
+      }
+      return res;
     }
     window.fetchWithAuth = fetchWithAuth;
 
-    window.fetch = async function(resource, init) {
+    window.fetch = async function(resource, init, _retry = 0) {
       const url = typeof resource === 'string' ? resource : (resource?.url || '');
       if (url.startsWith('/api/') && url !== '/api/token') {
         if (!authToken) {
@@ -2571,15 +2628,19 @@
         init.headers = init.headers || {};
         if (authToken) {
           if (init.headers instanceof Headers) {
-            if (!init.headers.has('Authorization')) {
-              init.headers.set('Authorization', `Bearer ${authToken}`);
-            }
+            init.headers.set('Authorization', `Bearer ${authToken}`);
           } else if (!init.headers['Authorization'] && !init.headers['authorization']) {
             init.headers['Authorization'] = `Bearer ${authToken}`;
           }
         }
       }
-      return _nativeFetch.apply(this, [resource, init]);
+      const res = await _nativeFetch.apply(this, [resource, init]);
+      if (res.status === 401 && _retry < 1 && url.startsWith('/api/') && url !== '/api/token') {
+        authToken = '';
+        await initAuth();
+        return window.fetch(resource, init, _retry + 1);
+      }
+      return res;
     };
 
     // ── Tab Navigation (showTab) ─────────────────────────────────
@@ -2638,6 +2699,11 @@
       if (main) main.scrollTop = 0;
       closeSidebar({ restoreFocus: false });
 
+      // Manage office loop lifecycle: pause when on another tab to save CPU
+      if (tabId !== 'office' && window.MCOffice && typeof window.MCOffice.sleep === 'function') {
+        window.MCOffice.sleep();
+      }
+
       // Lazy load tab data
       if (tabId === 'mc-providers') loadProviders();
       else if (tabId === 'mc-accounts') loadAccounts();
@@ -2655,6 +2721,23 @@
         }
       }
       else refreshData();
+    }
+
+    function opsOpenTasks(bucket) {
+      showTab('tasks');
+      setTimeout(() => {
+        let colId = '';
+        if (bucket === 'running') colId = 'tasks-col-running';
+        else if (bucket === 'failed') colId = 'tasks-col-failed';
+        else if (bucket === 'ready' || bucket === 'queued') colId = 'tasks-col-ready';
+        else if (bucket === 'completed') colId = 'tasks-col-completed';
+        const col = colId ? document.getElementById(colId) : null;
+        if (col) {
+          col.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          col.classList.add('ring-2', 'ring-amber-500/50');
+          setTimeout(() => col.classList.remove('ring-2', 'ring-amber-500/50'), 2000);
+        }
+      }, 100);
     }
 
     function formatDuration(seconds) {
@@ -2715,7 +2798,9 @@
     function toggleSidebar() { if (isSidebarOpen()) closeSidebar(); else openSidebar(); }
     _drawerMedia.addEventListener('change', (e) => { if (!e.matches) closeSidebar({ restoreFocus: false }); });
 
+    let _shortcutsTriggerEl = null;
     function openShortcuts() {
+      _shortcutsTriggerEl = document.activeElement;
       closeSidebar({ restoreFocus: false });
       const m = document.getElementById('shortcuts-modal');
       if (!m) return;
@@ -2726,11 +2811,23 @@
     function closeShortcuts() {
       const m = document.getElementById('shortcuts-modal');
       if (m) m.classList.add('hidden');
+      if (_shortcutsTriggerEl && typeof _shortcutsTriggerEl.focus === 'function') {
+        _shortcutsTriggerEl.focus();
+        _shortcutsTriggerEl = null;
+      }
     }
 
     window.addEventListener('hashchange', () => {
+      closeAllModals();
       const tab = decodeURIComponent(location.hash.slice(1));
       if (tab && tab !== currentTab && document.getElementById('tab-' + tab)) showTab(tab, { fromHash: true });
+    });
+
+    window.addEventListener('popstate', () => {
+      const openModal = document.querySelector('.fixed.inset-0:not(.hidden)');
+      if (openModal) {
+        closeAllModals();
+      }
     });
 
     // ── Keyboard Navigation (g+letter & / search) ────────────────
@@ -2758,6 +2855,11 @@
           e.target.blur();
           closeAllModals();
         }
+        return;
+      }
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        opsFocusDispatch();
         return;
       }
       if (e.key === '/') {
@@ -2812,6 +2914,7 @@
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
       });
+      if (typeof OPS !== 'undefined') OPS.modalTaskId = null;
     }
 
     // ── SSE Event Stream with Batching ───────────────────────────
@@ -2905,7 +3008,7 @@
         await refreshData();
         if (currentTab === 'tasks') {
           try {
-            const res = await fetchWithAuth('/api/tasks');
+            const res = await fetchWithAuth('/api/tasks?view=summary');
             if (res.ok) renderTasks(await res.json());
           } catch (e) {}
         } else if (currentTab === 'mc-providers') {
@@ -3631,6 +3734,9 @@
       } else if (action === 'task-cancel') {
         e.stopPropagation();
         cancelTask(taskId, el);
+      } else if (action === 'task-delete') {
+        e.stopPropagation();
+        deleteTask(taskId, el);
       } else if (action === 'task-run') {
         e.stopPropagation();
         executeSingleTask(taskId, el);
@@ -4202,7 +4308,7 @@
         const [statusRes, metricsRes, tasksRes, agentsRes] = await Promise.all([
           fetchWithAuth('/api/status'),
           fetchWithAuth('/api/accounts/metrics'),
-          fetchWithAuth('/api/tasks'),
+          fetchWithAuth('/api/tasks?view=summary'),
           fetchWithAuth('/api/agents'),
         ]);
 
@@ -4352,6 +4458,10 @@
       setText('stat-failed-sub', failed ? 'Open Tasks to see what went wrong' : 'Nothing has failed');
       setText('stat-memory', num(status.memories_count));
       setText('sidebar-memory-badge', num(status.memories_count));
+      const provOnline = status.providers_online ?? mc.providers_online ?? status.active_workers ?? mc.active_workers_count ?? 0;
+      const provTotal = status.providers_total ?? mc.providers_total ?? 0;
+      setText('stat-providers', provTotal ? `${num(provOnline)} of ${num(provTotal)}` : num(provOnline));
+      setText('stat-providers-sub', provOnline > 0 ? 'Active provider connections' : 'No active providers');
       setText('stat-workers', num(status.active_workers ?? mc.active_workers_count));
       setText('stat-workers-sub', 'Loaded and ready to run');
       setText('stat-tokens', num(mc.today_tokens ?? status.known_tokens));
@@ -4399,13 +4509,51 @@
       sel.dataset.rendered = desired;
     }
 
+    // Keep the Overview quick dispatch "Send to" dropdown synced with all registered accounts.
+    function populateQuickAgentDropdown(data) {
+      const sel = document.getElementById('quick-agent');
+      if (!sel || !data) return;
+      let rawList = [];
+      if (Array.isArray(data)) {
+        rawList = data;
+      } else if (data && Array.isArray(data.agents)) {
+        rawList = data.agents;
+      } else if (data && typeof data === 'object') {
+        for (const [k, v] of Object.entries(data)) {
+          if (v && v.accounts && typeof v.accounts === 'object') {
+            for (const [accId, acc] of Object.entries(v.accounts)) {
+              rawList.push({ id: accId, name: acc.name || accId, provider: k });
+            }
+          } else if (v && typeof v === 'object') {
+            rawList.push({ id: v.id || v.agent_id || k, name: v.name || v.label || k });
+          }
+        }
+      }
+      const options = [{ value: '', label: 'Smart router (recommended)' }];
+      for (const item of rawList) {
+        const id = item.id || item.agent_id || item.account_id;
+        if (!id) continue;
+        const name = item.name || item.label || id;
+        options.push({ value: id, label: name !== id ? `${name} (${id})` : id });
+      }
+      const desired = JSON.stringify(options);
+      if (sel.dataset.rendered === desired) return;
+      const previous = sel.value;
+      sel.innerHTML = options.map(o => `<option value="${ui.esc(o.value)}">${ui.esc(o.label)}</option>`).join('');
+      if (previous && options.some(o => o.value === previous)) sel.value = previous;
+      sel.dataset.rendered = desired;
+    }
+
     function renderAgents(data) {
       const grid = document.getElementById('agents-grid');
       // refreshData passes {} when /api/agents failed: keep the last good list.
       const failed = !!data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0;
       if (failed && OPS.agents.length) return;
       if (data !== null) {
-        if (!failed) populateAgentFilter(data);
+        if (!failed) {
+          populateAgentFilter(data);
+          populateQuickAgentDropdown(data);
+        }
         let agents = [];
         if (Array.isArray(data)) {
           agents = data;
@@ -4487,6 +4635,26 @@
       }).join('');
     }
 
+    function updateNeedsAttentionBanner(tasks) {
+      const banner = document.getElementById('dash-needs-attention');
+      const textEl = document.getElementById('dash-needs-attention-text');
+      if (!banner || !textEl || !Array.isArray(tasks)) return;
+      const approvalTasks = tasks.filter(t => t.requires_approval);
+      const failedTasks = tasks.filter(t => {
+        const s = (t.status || '').toUpperCase();
+        return s === 'FAILED' || s === 'ERROR' || s === 'REJECTED' || s === 'BLOCKED';
+      });
+      if (approvalTasks.length > 0) {
+        textEl.textContent = `${approvalTasks.length} task${approvalTasks.length > 1 ? 's' : ''} require operator approval before execution continues.`;
+        banner.classList.remove('hidden');
+      } else if (failedTasks.length > 0) {
+        textEl.textContent = `${failedTasks.length} task${failedTasks.length > 1 ? 's' : ''} recently failed or stopped and may need triage.`;
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
+    }
+
     function renderTasks(data) {
       if (!data || !Array.isArray(data.tasks)) {
         // /api/tasks failed: keep the last good board, or explain on first load.
@@ -4497,6 +4665,7 @@
       OPS.tasksLoaded = true;
       OPS.tasksById.clear();
       data.tasks.forEach((t) => OPS.tasksById.set(opsTaskId(t), t));
+      updateNeedsAttentionBanner(data.tasks);
       opsRenderTasks();
     }
 
@@ -5230,7 +5399,14 @@
       if (!taskId) return;
       const t = OPS.tasksById.get(taskId);
       const label = t ? `“${opsShort(opsTaskTitle(t), 80)}”` : taskId;
-      if (!window.confirm(`Cancel task ${label}?\n\nThe agent stops and the task is marked as cancelled. This cannot be undone.`)) return;
+      const ok = await mcConfirm({
+        title: 'Cancel this task?',
+        bodyHtml: `<p>Task <span class="ui-mono">${mcEsc(taskId)}</span> (${mcEsc(label)}) will be cancelled. The agent stops and the task is marked as cancelled.</p>`,
+        confirmLabel: 'Cancel task',
+        cancelLabel: 'Keep task',
+        danger: true,
+      });
+      if (!ok) return;
       await opsBusy(btn, async () => {
         try {
           await opsJson('/api/task/cancel', {
@@ -5239,9 +5415,43 @@
           });
           showToast(`Task ${taskId} cancelled`, 'info');
           if (OPS.modalTaskId === taskId) closeTaskModal();
-          refreshData();
+          await refreshData();
         } catch (err) {
           showToast(`Couldn't cancel the task: ${err.message}`, 'error');
+        }
+      });
+    }
+
+    async function deleteTask(taskId, btn) {
+      if (!taskId) return;
+      const t = OPS.tasksById.get(taskId);
+      const label = t ? `“${opsShort(opsTaskTitle(t), 80)}”` : taskId;
+      const ok = await mcConfirm({
+        title: 'Delete this task?',
+        bodyHtml: `<p>Task <span class="ui-mono">${mcEsc(taskId)}</span> (${mcEsc(label)}) will be permanently deleted from the queue and system records.</p>`,
+        confirmLabel: 'Delete task',
+        cancelLabel: 'Keep task',
+        danger: true,
+      });
+      if (!ok) return;
+      await opsBusy(btn, async () => {
+        try {
+          try {
+            await opsJson(`/api/task?task_id=${encodeURIComponent(taskId)}`, {
+              method: 'DELETE',
+            });
+          } catch (delErr) {
+            // Fallback to POST /api/task/delete if DELETE method is blocked
+            await opsJson('/api/task/delete', {
+              method: 'POST',
+              body: { task_id: taskId },
+            });
+          }
+          showToast(`Task ${taskId} permanently deleted`, 'success');
+          if (OPS.modalTaskId === taskId) closeTaskModal();
+          await refreshData();
+        } catch (err) {
+          showToast(`Couldn't delete task: ${err.message}`, 'error');
         }
       });
     }
@@ -7591,6 +7801,8 @@
       }
     }
 
+    let _modalHistoryActive = false;
+
     function openTaskModal(t) {
       const modal = document.getElementById('task-modal');
       if (!modal || !t) return;
@@ -7646,16 +7858,47 @@
           </div>
           ${t.approval_reason ? `<p class="ui-help ops-text">Why approval is needed: ${ui.esc(t.approval_reason)}</p>` : ''}
           ${t.terminal_reason ? `<p class="ui-help ops-text">Stopped because: ${ui.esc(t.terminal_reason)}</p>` : ''}
-          <div class="flex flex-wrap justify-end gap-2 pt-2">
-            ${canRun ? `<button type="button" class="ui-btn ui-btn-primary" data-ops-action="task-run" data-task-id="${ui.esc(id)}"><i class="fa-solid fa-play" aria-hidden="true"></i> Run now</button>` : ''}
-            ${canCancel ? `<button type="button" class="ui-btn ui-btn-danger" data-ops-action="task-cancel" data-task-id="${ui.esc(id)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel task</button>` : ''}
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-[#262626]">
+            <button type="button" class="ui-btn ui-btn-secondary" onclick="closeTaskModal()"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back</button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="ui-btn ui-btn-danger" data-ops-action="task-delete" data-task-id="${ui.esc(id)}"><i class="fa-solid fa-trash" aria-hidden="true"></i> Delete task</button>
+              ${canCancel ? `<button type="button" class="ui-btn ui-btn-secondary text-rose-400 hover:text-rose-300 border-rose-900/50" data-ops-action="task-cancel" data-task-id="${ui.esc(id)}"><i class="fa-solid fa-ban" aria-hidden="true"></i> Cancel task</button>` : ''}
+              ${canRun ? `<button type="button" class="ui-btn ui-btn-primary" data-ops-action="task-run" data-task-id="${ui.esc(id)}"><i class="fa-solid fa-play" aria-hidden="true"></i> Run now</button>` : ''}
+            </div>
           </div>
         `;
       }
+      if (t.output === undefined && t.result === undefined && id) {
+        fetchWithAuth(`/api/task?task_id=${encodeURIComponent(id)}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(fullTask => {
+            if (fullTask && OPS.modalTaskId === id) {
+              const taskData = fullTask.task || fullTask;
+              const merged = { ...t, ...taskData };
+              OPS.tasksById.set(id, merged);
+              openTaskModal(merged);
+            }
+          })
+          .catch(() => {});
+      }
       modal.classList.remove('hidden');
+      try {
+        if (!_modalHistoryActive) {
+          history.pushState({ modal: 'task-modal', taskId: id }, '');
+          _modalHistoryActive = true;
+        }
+      } catch (e) {}
     }
-    function closeTaskModal() {
-      document.getElementById('task-modal').classList.add('hidden');
+    function closeTaskModal(fromPopState = false) {
+      const modal = document.getElementById('task-modal');
+      if (modal) modal.classList.add('hidden');
+      OPS.modalTaskId = null;
+      if (!fromPopState && _modalHistoryActive && history.state && history.state.modal === 'task-modal') {
+        _modalHistoryActive = false;
+        try { history.back(); } catch (e) {}
+      } else {
+        _modalHistoryActive = false;
+      }
     }
 
     function closeDiffModal() {
@@ -7665,22 +7908,77 @@
       document.getElementById('routing-inspect-modal').classList.add('hidden');
     }
 
-    async function triggerContinue() {
-      showToast('Continuing swarm from handoff memory...', 'info');
+    async function triggerContinue(btn) {
       try {
-        const res = await fetchWithAuth('/api/continue', { method: 'POST', body: {} });
-        if (res.ok) showToast('Swarm resumed', 'success');
-      } catch (e) { showToast('Continue error', 'error'); }
-    }
-    async function triggerReconcile() {
-      showToast('Reconciling runtime tasks...', 'info');
-      try {
-        const res = await fetchWithAuth('/api/task/reconcile', { method: 'POST', body: {} });
-        if (res.ok) {
-          showToast('Runtime reconciled', 'success');
-          refreshData();
+        const handoffRes = await fetchWithAuth('/api/handoff');
+        let handoff = null;
+        if (handoffRes.ok) {
+          const hj = await handoffRes.json();
+          handoff = hj.handoff;
         }
-      } catch (e) { showToast('Reconcile error', 'error'); }
+        if (!handoff || handoff.is_terminal) {
+          showToast('No active handoff found to resume (status is terminal or empty).', 'info');
+          return;
+        }
+
+        const agentName = handoff.next_agent || handoff.agent || 'auto-router';
+        const nextStep = handoff.next_step || handoff.status || 'continue execution';
+
+        let confirmed = true;
+        if (typeof window.mcConfirm === 'function') {
+          confirmed = await window.mcConfirm({
+            title: 'Resume Work from Handoff?',
+            bodyHtml: `<p class="text-sm text-slate-300">Resume execution from the last recorded handoff checkpoint.</p>
+              <div class="mt-2 text-xs bg-slate-900/60 p-2.5 rounded border border-slate-700/60 font-mono text-slate-400">
+                <div><strong>Target agent:</strong> ${ui.esc(agentName)}</div>
+                <div class="mt-1"><strong>Step:</strong> ${ui.esc(nextStep)}</div>
+              </div>`,
+            confirmLabel: 'Resume Work'
+          });
+        }
+        if (!confirmed) return;
+
+        showToast('Resuming execution from handoff...', 'info');
+        const res = await fetchWithAuth('/api/continue', { method: 'POST', body: {} });
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data.status === 'terminal') {
+            showToast('Swarm is in terminal state; no further work needed.', 'info');
+          } else {
+            showToast('Swarm execution resumed', 'success');
+            refreshData();
+          }
+        } else {
+          showToast(`Resume failed HTTP ${res.status}`, 'error');
+        }
+      } catch (e) {
+        showToast(`Continue error: ${e.message}`, 'error');
+      }
+    }
+
+    async function triggerReconcile(btn) {
+      const runReconcile = async () => {
+        showToast('Reconciling runtime tasks...', 'info');
+        try {
+          const res = await fetchWithAuth('/api/tasks/reconcile', { method: 'POST', body: {} });
+          if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const count = data.reconciled ?? 0;
+            showToast(count > 0 ? `Reconciled ${count} stale task${count > 1 ? 's' : ''}` : 'All tasks up to date (none stale)', 'success');
+            refreshData();
+          } else {
+            showToast(`Reconcile failed HTTP ${res.status}`, 'error');
+          }
+        } catch (e) {
+          showToast(`Reconcile error: ${e.message}`, 'error');
+        }
+      };
+
+      if (btn && window.ui && typeof window.ui.busy === 'function') {
+        await window.ui.busy(btn, runReconcile);
+      } else {
+        await runReconcile();
+      }
     }
 
     // Show which agent would take an instruction. Nothing is executed.
@@ -7915,7 +8213,7 @@
       const FACTORS = [
         ['keyword_affinity', 'Keyword match'], ['capability_match', 'Capabilities'], ['strength_fit', 'Strength fit'],
         ['reliability', 'Reliability'], ['latency', 'Speed'], ['token_efficiency', 'Token efficiency'],
-        ['health', 'Health'], ['load_penalty', 'Busy penalty'],
+        ['health', 'Health'], ['load_penalty', 'Busy penalty'], ['fair_share_balance', 'Fair share'],
       ];
       const breakdown = (bd) => bd ? `
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-[#A1A1AA] pt-1">

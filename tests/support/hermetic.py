@@ -125,6 +125,7 @@ MUTABLE_REPO_DIRS = (
 PROTECTED_REPO_FILES = (
     "config/providers.json",
     "config/pricing.json",
+    "config/quotas.json",
     "handoffs/current.md",
     "handoffs/current.json",
 )
@@ -178,7 +179,7 @@ def remap_repo_path(value):
         rel = absolute.relative_to(REPO_ROOT)
     except ValueError:
         return value
-    if any(rel.parts[: len(prefix)] == prefix for prefix in MUTABLE_REPO_DIRS):
+    if rel == Path("config/quotas.json") or any(rel.parts[: len(prefix)] == prefix for prefix in MUTABLE_REPO_DIRS):
         target = STATE_ROOT / rel
         return target if isinstance(value, Path) else str(target)
     return value
@@ -231,6 +232,7 @@ def _redirect_repo_state() -> None:
     # Env hooks the product already honours.
     os.environ["BRAIN_SANDBOX_ROOT"] = str(STATE_ROOT / "runtime" / "sandboxes")
     os.environ["BRAIN_DIR"] = str(STATE_ROOT / "agentic-brain")
+    os.environ["BRAIN_QUOTAS_CONFIG"] = str(STATE_ROOT / "config" / "quotas.json")
 
     import importlib
 
@@ -242,6 +244,7 @@ def _redirect_repo_state() -> None:
         ("brain.orchestrator.job_manager", "JobManager", {}),
         ("brain.router.smart_router", "SmartRouter", {"history_file": "runtime/logs/routing_history.jsonl"}),
         ("brain.analytics.usage_tracker", "UsageTracker", {"storage_file": "runtime/analytics/usage.jsonl"}),
+        ("brain.analytics.quota_manager", "QuotaManager", {"config_file": "config/quotas.json"}),
         ("brain.context.context_optimizer", "TokenTelemetryTracker", {"log_path": "runtime/logs/token_telemetry.jsonl"}),
         ("brain.governance.audit_logger", "AuditLogger", {"log_path": "runtime/audit/audit.jsonl"}),
         ("brain.analytics.performance_registry", "PerformanceRegistry", {"log_path": "runtime/analytics/performance.jsonl"}),

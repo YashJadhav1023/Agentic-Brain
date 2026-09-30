@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -98,10 +99,10 @@ class QuotaManager:
         usage_tracker: UsageTracker | None = None,
         storage_file: Path | str | None = None,
     ) -> None:
-        target = config_file or storage_file
+        target = config_file or storage_file or os.environ.get("BRAIN_QUOTAS_CONFIG")
         if target:
             self._config_file = Path(target)
-            self._usage_tracker = usage_tracker or UsageTracker(storage_file=False)
+            self._usage_tracker = usage_tracker or (UsageTracker(storage_file=False) if (config_file or storage_file) else get_usage_tracker())
         else:
             self._config_file = Path(__file__).resolve().parents[2] / "config" / "quotas.json"
             self._usage_tracker = usage_tracker or get_usage_tracker()

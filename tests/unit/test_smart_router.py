@@ -97,6 +97,40 @@ class TestSmartRouter(unittest.TestCase):
         self.assertIsNotNone(dec.fallback_agent_id)
         self.assertNotEqual(dec.fallback_agent_id, dec.agent_id)
 
+    def test_dry_run_does_not_mutate_fair_share(self):
+        initial = dict(self.router._recent_routes)
+        self.router.route("Draft architecture RFC for secure cross-agent communication", record=False)
+        self.assertEqual(self.router._recent_routes, initial)
+
+    def test_password_policy_routes_to_kiro_not_governance(self):
+        # A testing task that happens to mention "policy" must not be misrouted to governance
+        dec = self.router.route("write pytest tests for the password policy module")
+        self.assertEqual(dec.agent_id, "kiro-cli")
+
+    def test_2077_and_2078_keyword_routing(self):
+        from unittest.mock import MagicMock
+
+        def make_mock_adapter(agent_id, caps):
+            ad = MagicMock()
+            ad.agent_id = agent_id
+            ad.account_id = agent_id.replace("antigravity-", "")
+            ad.provider = "antigravity"
+            ad.capabilities.return_value = frozenset(caps)
+            ad.health.return_value = (True, "OK")
+            ad.available_models.return_value = ("auto", "gemini-3.8-flash-medium")
+            return ad
+
+        reg = create_default_registry()
+        reg.register_adapter("antigravity", make_mock_adapter("antigravity-account-2077", [Capability.DEEP_REASONING, Capability.GOVERNANCE]))
+        reg.register_adapter("antigravity", make_mock_adapter("antigravity-account-2078", [Capability.GOVERNANCE, Capability.PROTOCOL_DESIGN]))
+        r = SmartRouter(reg)
+
+        dec_2077 = r.route("Formal verification and cryptographic security audit for distributed consensus")
+        self.assertEqual(dec_2077.agent_id, "antigravity-account-2077")
+
+        dec_2078 = r.route("Review multi-account orchestration and compliance standards for system governance")
+        self.assertEqual(dec_2078.agent_id, "antigravity-account-2078")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -101,7 +101,7 @@ class RouterConfig:
 AGENT_KEYWORDS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     (
         "antigravity-account-1",
-        re.compile(r"\b(architecture|governance|strategy|design doc|rfc|protocol|spec|system design)\b", re.I),
+        re.compile(r"\b(architecture|strategy|design doc|rfc|protocol|spec|system design|architect|protocol governance|architectural governance)\b", re.I),
         "high-level architectural design or protocol governance",
     ),
     (
@@ -111,12 +111,22 @@ AGENT_KEYWORDS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ),
     (
         "antigravity-account-3",
-        re.compile(r"\b(synthesis|autonomous|pipeline|verification|audit|eval|experiment|reasoning)\b", re.I),
+        re.compile(r"\b(synthesis|autonomous implementation|end-to-end implementation|autonomous pipeline|experiment synthesis|pipeline synthesis|autonomous|synthesis pipeline)\b", re.I),
         "autonomous implementation, synthesis and verification",
     ),
     (
+        "antigravity-account-2077",
+        re.compile(r"\b(deep reasoning|cryptographic|formal proof|security audit|distributed protocol|byzantine fault|formal verification|distributed consensus)\b", re.I),
+        "deep mathematical reasoning, formal verification and security audits",
+    ),
+    (
+        "antigravity-account-2078",
+        re.compile(r"\b(compliance policy|compliance standards|guardrail policy|multi-account orchestration|governance standards|system governance|security governance|governance)\b", re.I),
+        "governance standards, compliance policies and multi-account orchestration",
+    ),
+    (
         "cline",
-        re.compile(r"\b(frontend|ui|css|html|styling|tailwind|view|layout|flexbox)\b", re.I),
+        re.compile(r"\b(frontend|ui|css|html|styling|tailwind|view|layout|flexbox|react|vue|svelte|button|styles|component polish)\b", re.I),
         "frontend styling or UI component adjustments",
     ),
     (
@@ -135,7 +145,7 @@ CAPABILITY_KEYWORDS: tuple[tuple[Capability, re.Pattern[str]], ...] = (
     (Capability.EDITOR_REFACTORING, re.compile(r"\b(refactor|refactoring|restructure|rename|modernize|split|extract)\b", re.I)),
     (Capability.COMPONENT_REFACTORING, re.compile(r"\b(component|module|service|handler|class|consolidate)\b", re.I)),
     (Capability.CODE_REVIEW, re.compile(r"\b(review|audit|inspect|critique|lint)\b", re.I)),
-    (Capability.FRONTEND_STYLING, re.compile(r"\b(css|styling|tailwind|layout|flexbox|frontend|ui)\b", re.I)),
+    (Capability.FRONTEND_STYLING, re.compile(r"\b(css|styling|tailwind|layout|flexbox|frontend|ui|html|react|vue|svelte|page|button|styles)\b", re.I)),
     (Capability.TERMINAL_OPERATIONS, re.compile(r"\b(terminal|bash|shell|command|cli|kubectl|docker)\b", re.I)),
     (Capability.BUILD_AND_TEST, re.compile(r"\b(test|tests|pytest|unittest|build|compile|ci/cd|pipeline)\b", re.I)),
     (Capability.LOCAL_VALIDATION, re.compile(r"\b(validate|verify|check|sanity)\b", re.I)),
@@ -198,6 +208,10 @@ class SmartRouter:
         #: recorded on the most recent scoring pass so the dashboard can explain
         #: why an account is not receiving work.
         self._rejection_reasons: dict[str, dict[str, Any]] = {}
+        #: agent_id -> count of recent assignments for fair-share distribution
+        self._recent_routes: dict[str, int] = {}
+        #: task_text -> most recent RoutingDecision for explainability consistency
+        self._last_route_decisions: dict[str, RoutingDecision] = {}
 
     def _record_rejection(
         self, account_id: str, reason: str, detail: str = ""
@@ -387,6 +401,13 @@ class SmartRouter:
     @staticmethod
     def _max_strength(agent_id: str) -> int:
         catalog = AGENT_CATALOGS.get(agent_id)
+        if not catalog:
+            if agent_id.startswith("cline"):
+                catalog = AGENT_CATALOGS.get("cline")
+            elif agent_id.startswith("antigravity"):
+                catalog = AGENT_CATALOGS.get("antigravity-account-1") or AGENT_CATALOGS.get("antigravity")
+            elif agent_id.startswith("kiro"):
+                catalog = AGENT_CATALOGS.get("kiro-cli")
         return max((spec.strength for spec in catalog), default=3) if catalog else 3
 
     def _busy(self, adapter: AgentAdapter) -> bool:
@@ -416,6 +437,19 @@ class SmartRouter:
         # Reset rejection reasons for this scoring pass so the dashboard always
         # reflects the most recent competition.
         self._rejection_reasons = {}
+
+        # Precompute active task counts once across all agents to avoid O(N*C) disk reads
+        active_counts: dict[str, int] = {}
+        if self._task_manager:
+            try:
+                active_statuses = {"RUNNING", "READY", "QUEUED", "PLANNING", "IN_PROGRESS", "IN-PROGRESS"}
+                for t in self._task_manager.list_tasks():
+                    st = getattr(t.status, "value", str(t.status)).upper()
+                    if st in active_statuses and t.assigned_agent:
+                        active_counts[t.assigned_agent] = active_counts.get(t.assigned_agent, 0) + 1
+            except Exception:
+                pass
+
         for adapter in self._registry.list_active_adapters():
             # Account Registry check
             acct = self._registry.account_registry.get_account(adapter.account_id)
@@ -455,8 +489,13 @@ class SmartRouter:
 
             # 1. Keyword Affinity
             kw_score = 0.0
-            for agent_id, pattern, explanation in AGENT_KEYWORDS:
-                if agent_id == adapter.agent_id and pattern.search(task_text):
+            for target_id, pattern, explanation in AGENT_KEYWORDS:
+                matches_agent = (
+                    target_id == adapter.agent_id
+                    or target_id == adapter.provider
+                    or adapter.agent_id.startswith(f"{target_id}-")
+                )
+                if matches_agent and pattern.search(task_text):
                     kw_score += KEYWORD_AFFINITY_WEIGHT
                     reasons.append(f"keyword affinity: {explanation}")
                     break
@@ -520,12 +559,25 @@ class SmartRouter:
                 hlth_score *= 2.0
             breakdown["health"] = hlth_score
 
-            # 8. Load Penalty
+            # 8. Load Penalty & Concurrency
             load_pen = 0.0
+            assigned_active = active_counts.get(adapter.agent_id, 0)
             if self._busy(adapter):
                 load_pen = LOAD_PENALTY
                 reasons.append("currently WORKING; deprioritized")
+            elif assigned_active > 0:
+                load_pen = min(10.0, assigned_active * 2.5)
+                reasons.append(f"queue load: {assigned_active} active task(s); deprioritized")
             breakdown["load_penalty"] = -load_pen
+
+            # Dynamic Fair-Share Balance across accounts:
+            recent_count = self._recent_routes.get(adapter.agent_id, 0)
+            fair_share = 0.0
+            if recent_count > 0:
+                fair_share = -min(2.0, recent_count * 0.4)
+            else:
+                fair_share = 0.6
+            breakdown["fair_share_balance"] = fair_share
 
             # 9. Priorities (Account, Provider, Model)
             acct_prio = float(getattr(acct, "priority", 10)) * 0.1 if acct else 1.0
@@ -572,16 +624,17 @@ class SmartRouter:
 
             # 13. Cost Factor
             model_name = getattr(adapter, "default_model", "auto")
-            est_cost = self._cost_tracker.estimate_cost(adapter.provider, model_name, 5000)
+            raw_cost = self._cost_tracker.estimate_cost(adapter.provider, model_name, 5000)
+            est_cost = getattr(raw_cost, "total_cost", raw_cost)
             cost_factor = 0.0
             if est_cost == 0.0:  # Free local or oauth model
                 cost_factor = 3.0 if routing_mode == RoutingMode.COST else 1.5
                 reasons.append("cost: free local execution ($0.00)")
-            elif est_cost is not None:
+            elif est_cost is not None and isinstance(est_cost, (int, float)):
                 if routing_mode == RoutingMode.COST:
-                    cost_factor = -round(est_cost * 100.0, 2)
+                    cost_factor = -round(float(est_cost) * 100.0, 2)
                 else:
-                    cost_factor = max(-2.0, -round(est_cost * 10.0, 2))
+                    cost_factor = max(-2.0, -round(float(est_cost) * 10.0, 2))
             breakdown["estimated_cost"] = cost_factor
 
             # 14. Task Complexity & Context Size Alignment
@@ -590,7 +643,13 @@ class SmartRouter:
 
             # 15. Streaming & Tool Support
             breakdown["streaming_support"] = 0.5
-            breakdown["tool_support"] = 1.0 if Capability.TERMINAL_OPERATIONS in declared or Capability.EDITOR_REFACTORING in declared else 0.5
+            has_tool = (
+                adapter.provider in ("antigravity", "cline", "kiro")
+                or Capability.TERMINAL_OPERATIONS in declared
+                or Capability.EDITOR_REFACTORING in declared
+                or Capability.COMPONENT_REFACTORING in declared
+            )
+            breakdown["tool_support"] = 1.0 if has_tool else 0.5
 
             # 16. User Preference
             pref_bonus = 0.0
@@ -617,7 +676,16 @@ class SmartRouter:
             )
             scores.append(candidate)
 
-        scores.sort(key=lambda c: c.score, reverse=True)
+        scores.sort(key=lambda c: c.agent_id)
+        scores.sort(
+            key=lambda c: (
+                round(c.score, 4),
+                c.success_rate,
+                len(c.matched_capabilities),
+                -c.latency,
+            ),
+            reverse=True,
+        )
         return scores
 
     # ------------------------------------------------------------------
@@ -633,6 +701,7 @@ class SmartRouter:
         routing_mode: RoutingMode | str = RoutingMode.BALANCED,
         preferred_account: str | None = None,
         requires_streaming: bool = False,
+        record: bool = True,
         **kwargs: Any,
     ) -> RoutingDecision:
         """Deterministically route a task and generate explainable fallback chain."""
@@ -724,7 +793,12 @@ class SmartRouter:
                 required_capabilities=required,
                 candidates=[c.to_dict() for c in fallbacks],
             )
-            self._log_decision(task_text, decision)
+            if record:
+                self._last_route_decisions[task_text] = decision
+                if len(self._last_route_decisions) > 100:
+                    oldest = next(iter(self._last_route_decisions))
+                    self._last_route_decisions.pop(oldest, None)
+                self._log_decision(task_text, decision)
             return decision
 
         # 2. Scored competition across every healthy candidate
@@ -739,6 +813,14 @@ class SmartRouter:
 
         winner = candidates[0]
         runner_up = candidates[1] if len(candidates) > 1 else None
+
+        if record:
+            # Track recent assignment for fair-share rotation across accounts
+            self._recent_routes[winner.agent_id] = self._recent_routes.get(winner.agent_id, 0) + 1
+            if sum(self._recent_routes.values()) > 25:
+                for k in list(self._recent_routes.keys()):
+                    self._recent_routes[k] = max(0, self._recent_routes[k] - 1)
+
         model = preferred_model or select_model(winner.agent_id, complexity=complexity, risk=risk).preferred_model
 
         reason = "; ".join(winner.reasons) if winner.reasons else "highest scoring available agent"
@@ -774,7 +856,12 @@ class SmartRouter:
             required_capabilities=required,
             candidates=[c.to_dict() for c in candidates],
         )
-        self._log_decision(task_text, decision)
+        if record:
+            self._last_route_decisions[task_text] = decision
+            if len(self._last_route_decisions) > 100:
+                oldest = next(iter(self._last_route_decisions))
+                self._last_route_decisions.pop(oldest, None)
+            self._log_decision(task_text, decision)
         return decision
 
     # ------------------------------------------------------------------
@@ -810,26 +897,53 @@ class SmartRouter:
         """Retrieve recent routing history records in reverse chronological order."""
         if not self._history_file.is_file():
             return []
+        if limit <= 0:
+            limit = 50
+        limit = min(limit, 500)
+
         records: list[dict[str, Any]] = []
         try:
-            with open(self._history_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
+            file_size = self._history_file.stat().st_size
+            if file_size == 0:
+                return []
+
+            block_size = 64 * 1024
+            with open(self._history_file, "rb") as f:
+                pos = file_size
+                remainder = b""
+                while pos > 0 and len(records) < limit:
+                    read_len = min(pos, block_size)
+                    pos -= read_len
+                    f.seek(pos)
+                    chunk = f.read(read_len) + remainder
+                    chunk_lines = chunk.split(b"\n")
+                    if pos > 0:
+                        remainder = chunk_lines[0]
+                        chunk_lines = chunk_lines[1:]
+                    else:
+                        remainder = b""
+
+                    for raw_line in reversed(chunk_lines):
+                        raw_line = raw_line.strip()
+                        if not raw_line:
+                            continue
                         try:
-                            item = json.loads(line)
+                            item = json.loads(raw_line.decode("utf-8", errors="replace"))
                             if job_id:
-                                # Match job_id in candidates or text
-                                if job_id in item.get("task_text", "") or job_id in json.dumps(item):
+                                if item.get("job_id") == job_id or item.get("task_id") == job_id or job_id in item.get("task_text", ""):
                                     records.append(item)
+                                    if len(records) >= limit:
+                                        break
                             else:
                                 records.append(item)
+                                if len(records) >= limit:
+                                    break
                         except Exception:
                             continue
         except Exception as exc:
             logger.warning(f"Error reading routing history: {exc}")
             return []
-        return list(reversed(records))[:limit]
+        return records
 
     def score_candidate(
         self,
@@ -1046,7 +1160,15 @@ class SmartRouter:
 
     def explain_routing(self, task_text: str, **kwargs: Any) -> dict[str, Any]:
         """Generate comprehensive explainability report for routing a task."""
-        decision = self.route(task_text, **kwargs)
+        decision = None
+        if not kwargs and task_text in self._last_route_decisions:
+            cached = self._last_route_decisions[task_text]
+            if self._registry:
+                ad = self._registry.get_adapter(cached.agent_id)
+                if ad and ad.health()[0]:
+                    decision = cached
+        if not decision:
+            decision = self.route(task_text, record=False, **kwargs)
 
         # Recommendations for MCPs, Tools, and Knowledge
         recommended_mcps = []

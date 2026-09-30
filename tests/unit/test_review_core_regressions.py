@@ -225,6 +225,61 @@ class PersistenceRegressions(unittest.TestCase):
                              json.loads(first))
             self.assertEqual(list(storage.glob("*.tmp")), [])
 
+    def test_task_deletion_purges_local_and_swarm_files(self):
+        from tasks.manager import TaskManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = Path(tmp) / "brain"
+            swarm_pending = brain_dir / "swarm" / "tasks" / "pending"
+            swarm_pending.mkdir(parents=True, exist_ok=True)
+            tasks_root = Path(tmp) / "tasks"
+
+            with mock.patch("tasks.manager._brain_dir", return_value=brain_dir):
+                tm = TaskManager(root_tasks_dir=tasks_root, include_swarm=True)
+                task = tm.create_task(title="local task", description="desc", task_id="task-del-1")
+                # Also create a swarm file with the same ID
+                swarm_file = swarm_pending / "task-del-1.json"
+                swarm_file.write_text(json.dumps({"id": "task-del-1", "title": "swarm copy"}), encoding="utf-8")
+                self.assertTrue(swarm_file.exists())
+                self.assertIsNotNone(tm.get_task("task-del-1"))
+
+                # Perform permanent deletion
+                deleted = tm.delete_task("task-del-1")
+                self.assertTrue(deleted)
+                self.assertFalse(swarm_file.exists())
+                self.assertIsNone(tm.get_task("task-del-1"))
+
+    def test_task_cancel_removes_swarm_pending_file(self):
+        from tasks.manager import TaskManager, TaskStatus
+
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = Path(tmp) / "brain"
+            swarm_pending = brain_dir / "swarm" / "tasks" / "pending"
+            swarm_pending.mkdir(parents=True, exist_ok=True)
+            tasks_root = Path(tmp) / "tasks"
+
+            swarm_file = swarm_pending / "task-cancel-1.json"
+            swarm_file.write_text(json.dumps({"id": "task-cancel-1", "title": "swarm cancel task"}), encoding="utf-8")
+
+            with mock.patch("tasks.manager._brain_dir", return_value=brain_dir):
+                tm = TaskManager(root_tasks_dir=tasks_root, include_swarm=True)
+                t = tm.get_task("task-cancel-1")
+                self.assertIsNotNone(t)
+                self.assertEqual(t.status, TaskStatus.READY)
+
+                # Cancel the task
+                cancelled = tm.update_status("task-cancel-1", TaskStatus.CANCELLED, is_terminal=True, terminal_reason="USER_CANCELLED")
+                self.assertIsNotNone(cancelled)
+                self.assertEqual(cancelled.status, TaskStatus.CANCELLED)
+
+                # Swarm pending file must be removed!
+                self.assertFalse(swarm_file.exists(), "Swarm pending file should be unlinked when cancelled")
+
+                # The cancelled task should now be in failed/
+                reloaded = tm.get_task("task-cancel-1")
+                self.assertIsNotNone(reloaded)
+                self.assertEqual(reloaded.status, TaskStatus.CANCELLED)
+
     def test_save_config_uses_unique_temp_file(self):
         # A fixed "providers.tmp" was shared by every concurrent saver.
         from providers.registry import config as cfg

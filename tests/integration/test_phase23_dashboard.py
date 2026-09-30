@@ -222,3 +222,45 @@ class TestPhase23DashboardSecurity(unittest.TestCase):
 
         # Cleanup: emergency kill switch
         fed.disable_all()
+
+    def test_delete_and_cancel_task_endpoints(self):
+        """Verify cancel and permanent delete endpoints operate securely and correctly."""
+        from tasks.manager import TaskStatus
+
+        task = self._test_tm.create_task(title="cancel me", description="testing cancel and delete", task_id="task-integ-123")
+        auth_headers = {"Authorization": f"Bearer {self.token}"}
+
+        # 1. Unauthenticated DELETE returns 401
+        status, _, _ = self._request("/api/task?task_id=task-integ-123", method="DELETE")
+        self.assertEqual(status, 401)
+
+        # 2. Authenticated cancel returns 200 and marks task cancelled
+        status, _, body = self._request(
+            "/api/task/cancel",
+            method="POST",
+            headers=auth_headers,
+            data={"task_id": "task-integ-123"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(body.get("status"), "cancelled")
+        reloaded = self._test_tm.get_task("task-integ-123")
+        self.assertIsNotNone(reloaded)
+        self.assertEqual(reloaded.status, TaskStatus.CANCELLED)
+
+        # 3. Authenticated DELETE returns 200 and purges task completely
+        status, _, body = self._request(
+            "/api/task?task_id=task-integ-123",
+            method="DELETE",
+            headers=auth_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(body.get("status"), "deleted")
+        self.assertTrue(body.get("deleted"))
+
+        # 4. GET now returns 404
+        status, _, _ = self._request(
+            "/api/task?task_id=task-integ-123",
+            headers=auth_headers,
+        )
+        self.assertEqual(status, 404)
+        self.assertIsNone(self._test_tm.get_task("task-integ-123"))

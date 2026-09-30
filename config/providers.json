@@ -41,7 +41,8 @@
             "protocol-design",
             "governance",
             "deep-reasoning",
-            "documentation"
+            "documentation",
+            "editor-refactoring"
           ],
           "models": [
             "gemini-3.1-pro-high",
@@ -116,7 +117,8 @@
             "component-refactoring",
             "code-review",
             "architecture",
-            "documentation"
+            "documentation",
+            "editor-refactoring"
           ],
           "models": [
             "gemini-3.1-pro-high",
@@ -158,7 +160,8 @@
             "deep-reasoning",
             "documentation",
             "governance",
-            "protocol-design"
+            "protocol-design",
+            "editor-refactoring"
           ],
           "execution": {
             "command": "~/.gemini/bin/agy",
@@ -190,7 +193,8 @@
             "deep-reasoning",
             "documentation",
             "governance",
-            "protocol-design"
+            "protocol-design",
+            "editor-refactoring"
           ],
           "execution": {
             "command": "~/.gemini/bin/agy",

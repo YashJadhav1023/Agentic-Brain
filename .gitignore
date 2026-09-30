@@ -74,3 +74,4 @@ Thumbs.db
 # have leaked personal data in the past.
 *.bak
 *.bak-*
+.claude/

@@ -6,6 +6,18 @@
 (function () {
   'use strict';
 
+  function esc(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  let isOfficeVisible = true;
+
   // ── Global Canvas & Map Config ─────────────────────────────────────────────
   const MAP_W = 544; // 34 tiles * 16px
   const MAP_H = 352; // 22 tiles * 16px
@@ -53,11 +65,12 @@
       name: 'Michael',
       label: 'MICHAEL',
       charName: 'michael',
+      agentId: 'antigravity-account-1',
       isGod: true,
       status: 'idle',
-      action: 'idle',
-      note: 'hive',
-      role: 'GOD',
+      action: 'orchestrator',
+      note: 'Architect (AG-1)',
+      role: 'Architect (AG-1)',
       badge: 'GOD',
       x: 48,
       y: 56,
@@ -65,9 +78,10 @@
       sitting: true,
       progress: 0,
       bubble: null,
+      inRoster: true,
       waypoints: [
         { x: 48, y: 56, wait: 16, sit: true, bubble: null },
-        { x: 80, y: 76, wait: 6, sit: false, bubble: 'Meeting in 5!' },
+        { x: 80, y: 76, wait: 6, sit: false, bubble: 'Standup!' },
         { x: 48, y: 56, wait: 12, sit: true, bubble: null }
       ]
     },
@@ -76,21 +90,23 @@
       name: 'Jim',
       label: 'JIM',
       charName: 'jim',
+      agentId: 'kiro-cli',
       isGod: false,
-      status: 'working',
-      action: 'awaiting',
-      note: 'awaiting',
-      role: 'Sales',
-      badge: 'working',
+      status: 'idle',
+      action: 'standby',
+      note: 'Terminal & Test (Kiro)',
+      role: 'Terminal & Test (Kiro)',
+      badge: 'idle',
       x: 32,
       y: 204,
       dir: 'up',
       sitting: true,
-      progress: 68,
-      bubble: 'awaiting',
+      progress: 0,
+      bubble: null,
+      inRoster: true,
       waypoints: [
         { x: 32, y: 204, wait: 14, sit: true, bubble: null },
-        { x: 70, y: 204, wait: 5, sit: false, bubble: 'Pranking Dwight' },
+        { x: 70, y: 204, wait: 5, sit: false, bubble: 'CLI run' },
         { x: 32, y: 204, wait: 10, sit: true, bubble: null }
       ]
     },
@@ -99,22 +115,24 @@
       name: 'Pam',
       label: 'PAM',
       charName: 'pam',
+      agentId: 'cline-account-1',
       isGod: false,
-      status: 'working',
-      action: 'awaiting',
-      note: 'awaiting',
-      role: 'Reception / Artist',
-      badge: 'working',
+      status: 'idle',
+      action: 'standby',
+      note: 'Frontend & UI (Cline-1)',
+      role: 'Frontend & UI (Cline-1)',
+      badge: 'idle',
       x: 184,
       y: 242,
       dir: 'down',
       sitting: false,
-      progress: 52,
-      bubble: 'awaiting',
+      progress: 0,
+      bubble: null,
+      inRoster: true,
       waypoints: [
-        { x: 184, y: 242, wait: 6, bubble: 'Reception' },
-        { x: 184, y: 190, wait: 4, bubble: 'Filing logs' },
-        { x: 210, y: 150, wait: 5, bubble: 'Copier duty' },
+        { x: 184, y: 242, wait: 6, bubble: null },
+        { x: 184, y: 190, wait: 4, bubble: 'UI design' },
+        { x: 210, y: 150, wait: 5, bubble: 'Design review' },
         { x: 184, y: 190, wait: 3, bubble: null }
       ]
     },
@@ -123,22 +141,24 @@
       name: 'Kevin',
       label: 'KEVIN',
       charName: 'kevin',
+      agentId: 'cline-account-2',
       isGod: false,
-      status: 'working',
-      action: 'starting up',
-      note: 'starting up',
-      role: 'Accounting',
-      badge: 'working',
+      status: 'idle',
+      action: 'standby',
+      note: 'Components (Cline-2)',
+      role: 'Components (Cline-2)',
+      badge: 'idle',
       x: 250,
       y: 256,
       dir: 'right',
       sitting: false,
-      progress: 35,
-      bubble: 'starting up',
+      progress: 0,
+      bubble: null,
+      inRoster: true,
       waypoints: [
-        { x: 250, y: 256, wait: 5, bubble: 'Awaiting tasks' },
-        { x: 270, y: 240, wait: 7, bubble: 'Coffee time' },
-        { x: 220, y: 256, wait: 4, bubble: 'Balancing books' },
+        { x: 250, y: 256, wait: 5, bubble: null },
+        { x: 270, y: 240, wait: 7, bubble: 'Components' },
+        { x: 220, y: 256, wait: 4, bubble: 'Testing props' },
         { x: 120, y: 260, wait: 4, bubble: null }
       ]
     },
@@ -147,44 +167,48 @@
       name: 'Ryan',
       label: 'RYAN',
       charName: 'ryan',
+      agentId: 'antigravity-account-3',
       isGod: false,
-      status: 'working',
-      action: 'starting up',
-      note: 'starting up',
-      role: 'The Temp',
-      badge: 'working',
+      status: 'idle',
+      action: 'standby',
+      note: 'Implementation (AG-3)',
+      role: 'Implementation (AG-3)',
+      badge: 'idle',
       x: 160,
       y: 204,
       dir: 'up',
       sitting: true,
-      progress: 20,
-      bubble: 'starting up',
+      progress: 0,
+      bubble: null,
+      inRoster: true,
       waypoints: [
         { x: 160, y: 204, wait: 12, sit: true, bubble: null },
-        { x: 184, y: 180, wait: 5, sit: false, bubble: 'Networking' },
+        { x: 184, y: 180, wait: 5, sit: false, bubble: 'Code sync' },
         { x: 160, y: 204, wait: 10, sit: true, bubble: null }
       ]
     },
     {
       id: 'stanley',
       name: 'Stanley',
-      label: 'STANL..',
+      label: 'STANLEY',
       charName: 'stanley',
+      agentId: 'antigravity-account-2077',
       isGod: false,
-      status: 'working',
-      action: 'starting up',
-      note: 'starting up',
-      role: 'Sales / Crosswords',
-      badge: 'working',
+      status: 'idle',
+      action: 'standby',
+      note: 'Deep Reasoning (AG-2077)',
+      role: 'Deep Reasoning (AG-2077)',
+      badge: 'idle',
       x: 264,
       y: 256,
       dir: 'left',
       sitting: false,
-      progress: 40,
-      bubble: 'starting up',
+      progress: 0,
+      bubble: null,
+      inRoster: true,
       waypoints: [
-        { x: 264, y: 256, wait: 8, bubble: 'Crosswords' },
-        { x: 210, y: 256, wait: 5, bubble: 'Water break' },
+        { x: 264, y: 256, wait: 8, bubble: null },
+        { x: 210, y: 256, wait: 5, bubble: 'Deep reasoning' },
         { x: 264, y: 240, wait: 7, bubble: null }
       ]
     },
@@ -193,21 +217,23 @@
       name: 'Meredith',
       label: 'MEREDITH',
       charName: 'meredith',
+      agentId: 'cline-account-3',
       isGod: false,
-      status: 'working',
-      action: 'InstaContent',
-      note: 'InstaContent',
-      role: 'Supplier Relations',
-      badge: 'working',
+      status: 'idle',
+      action: 'standby',
+      note: 'UI Styling (Cline-3)',
+      role: 'UI Styling (Cline-3)',
+      badge: 'idle',
       x: 224,
       y: 204,
       dir: 'up',
       sitting: true,
-      progress: 75,
-      bubble: 'awaiting',
+      progress: 0,
+      bubble: null,
+      inRoster: true,
       waypoints: [
         { x: 224, y: 204, wait: 14, sit: true, bubble: null },
-        { x: 240, y: 170, wait: 5, sit: false, bubble: 'Supplier call' },
+        { x: 240, y: 170, wait: 5, sit: false, bubble: 'CSS polish' },
         { x: 224, y: 204, wait: 12, sit: true, bubble: null }
       ]
     },
@@ -216,22 +242,23 @@
       name: 'Dwight',
       label: 'DWIGHT',
       charName: 'dwight',
+      agentId: 'antigravity-account-2',
       isGod: false,
-      status: 'working',
-      action: 'starting up',
-      note: 'starting up',
-      role: 'Assistant (to the) RM',
-      badge: 'working',
+      status: 'idle',
+      action: 'standby',
+      note: 'Refactor & Review (AG-2)',
+      role: 'Refactor & Review (AG-2)',
+      badge: 'idle',
       x: 96,
       y: 204,
       dir: 'up',
       sitting: true,
-      progress: 30,
-      bubble: 'starting up',
-      inRoster: false,
+      progress: 0,
+      bubble: null,
+      inRoster: true,
       waypoints: [
-        { x: 96, y: 204, wait: 10, sit: true, bubble: 'Security patrol' },
-        { x: 96, y: 160, wait: 5, sit: false, bubble: 'Inspecting floor' },
+        { x: 96, y: 204, wait: 10, sit: true, bubble: null },
+        { x: 96, y: 160, wait: 5, sit: false, bubble: 'Refactor review' },
         { x: 96, y: 204, wait: 10, sit: true, bubble: null }
       ]
     },
@@ -240,22 +267,23 @@
       name: 'Toby',
       label: 'TOBY',
       charName: 'toby',
+      agentId: 'antigravity-account-2078',
       isGod: false,
       status: 'idle',
-      action: 'HR review',
-      note: 'HR',
-      role: 'Human Resources',
+      action: 'standby',
+      note: 'Governance & Spec (AG-2078)',
+      role: 'Governance & Spec (AG-2078)',
       badge: 'idle',
       x: 320,
       y: 110,
       dir: 'up',
       sitting: true,
-      progress: 10,
+      progress: 0,
       bubble: null,
-      inRoster: false,
+      inRoster: true,
       waypoints: [
         { x: 320, y: 110, wait: 20, sit: true, bubble: null },
-        { x: 280, y: 110, wait: 6, sit: false, bubble: 'HR check' },
+        { x: 280, y: 110, wait: 6, sit: false, bubble: 'Governance check' },
         { x: 320, y: 110, wait: 15, sit: true, bubble: null }
       ]
     }
@@ -495,6 +523,10 @@
 
   // ── Render Loop ────────────────────────────────────────────────────────────
   function render(timeMs) {
+    if (!isOfficeVisible || document.hidden) {
+      animationFrameId = null;
+      return;
+    }
     animationFrameId = requestAnimationFrame(render);
     const dt = Math.min((timeMs - lastTime) / 1000, 0.1);
     lastTime = timeMs;
@@ -636,8 +668,9 @@
       }
 
       const badgeSpan = document.createElement('span');
-      badgeSpan.className = 'agent-badge ' + (char.isGod ? 'idle' : char.status);
-      badgeSpan.innerHTML = `<span class="status-sq ${char.isGod ? 'idle' : char.status}"></span> ${char.isGod ? 'idle' : char.status}`;
+      const badgeClass = char.isGod ? 'god' : (char.status || 'idle');
+      badgeSpan.className = 'agent-badge ' + badgeClass;
+      badgeSpan.innerHTML = `<span class="status-sq ${char.status || 'idle'}"></span> ${char.isGod ? 'GOD' : (char.status || 'idle')}`;
 
       head.appendChild(nameSpan);
       head.appendChild(badgeSpan);
@@ -666,16 +699,19 @@
 
       const note = document.createElement('div');
       note.className = 'agent-status-note';
-      note.textContent = char.note || char.action;
+      note.textContent = char.note || char.role || char.action;
+      note.title = char.action || char.role;
       meta.appendChild(note);
 
       if (char.isGod) {
         const talkBtn = document.createElement('button');
         talkBtn.type = 'button';
         talkBtn.className = 'agent-talk-btn';
-        talkBtn.innerHTML = '<i class="fa-solid fa-microphone"></i> talk';
+        talkBtn.innerHTML = '<i class="fa-solid fa-bolt"></i> auto';
+        talkBtn.title = 'Michael auto-routes to best worker across all accounts';
         talkBtn.onclick = (e) => {
           e.stopPropagation();
+          selectAgent(char.id);
           const input = document.getElementById('dunder-queue-input');
           if (input) input.focus();
         };
@@ -685,7 +721,7 @@
         progBar.className = 'agent-progress-bar';
         const progFill = document.createElement('div');
         progFill.className = 'agent-progress-fill';
-        progFill.style.width = (char.progress || 30) + '%';
+        progFill.style.width = (char.status === 'working' ? (char.progress || 70) : 0) + '%';
         progBar.appendChild(progFill);
         meta.appendChild(progBar);
       }
@@ -700,6 +736,39 @@
 
       strip.appendChild(card);
     }
+    updateRosterScrollButtons();
+  }
+
+  function updateRosterScrollButtons() {
+    const strip = document.getElementById('dunder-roster-strip');
+    const prevBtn = document.getElementById('dunder-roster-prev');
+    const nextBtn = document.getElementById('dunder-roster-next');
+    if (!strip) return;
+    if (prevBtn) prevBtn.classList.toggle('hidden', strip.scrollLeft <= 5);
+    if (nextBtn) nextBtn.classList.toggle('hidden', strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 5);
+  }
+
+  let rosterControlsInitialized = false;
+  function setupRosterControls() {
+    if (rosterControlsInitialized) return;
+    const strip = document.getElementById('dunder-roster-strip');
+    const prevBtn = document.getElementById('dunder-roster-prev');
+    const nextBtn = document.getElementById('dunder-roster-next');
+    if (strip) {
+      strip.addEventListener('scroll', updateRosterScrollButtons, { passive: true });
+      rosterControlsInitialized = true;
+    }
+    if (prevBtn && strip) {
+      prevBtn.onclick = () => {
+        strip.scrollBy({ left: -260, behavior: 'smooth' });
+      };
+    }
+    if (nextBtn && strip) {
+      nextBtn.onclick = () => {
+        strip.scrollBy({ left: 260, behavior: 'smooth' });
+      };
+    }
+    updateRosterScrollButtons();
   }
 
   // ── Agent Selection ────────────────────────────────────────────────────────
@@ -719,9 +788,19 @@
     const bossStatus = document.querySelector('.boss-status');
     if (bossStatus) {
       if (char.isGod) {
-        bossStatus.innerHTML = `<span class="status-sq idle"></span> idle &nbsp; Michael runs the floor`;
+        bossStatus.innerHTML = `<span class="status-sq idle"></span> idle &nbsp; Michael (All Accounts Smart Router)`;
       } else {
-        bossStatus.innerHTML = `<span class="status-sq ${char.status}"></span> ${char.status} &nbsp; ${char.name} (${char.role})`;
+        bossStatus.innerHTML = `<span class="status-sq ${esc(char.status)}"></span> ${esc(char.status)} &nbsp; ${esc(char.name)} (${esc(char.role)})`;
+      }
+    }
+
+    // Update input placeholder to guide the operator
+    const input = document.getElementById('dunder-queue-input');
+    if (input) {
+      if (char.isGod) {
+        input.placeholder = 'Instruct Michael (Auto-routes to best worker across all accounts)...';
+      } else {
+        input.placeholder = `Direct task to ${char.name} (${char.agentId})...`;
       }
     }
 
@@ -735,11 +814,11 @@
   // ── Command Center Initial Terminal Content ────────────────────────────────
   const INITIAL_TERMINAL_HTML = `
     <p class="term-cmd-bar">&gt; Let's ask each of the agents what are they up to. In short,</p>
-    <p class="term-bullet">● On it — sending each of the 7 agents a short &quot;what are you up to?&quot; query.</p>
+    <p class="term-bullet">● On it — checking status across all 9 agent accounts.</p>
     <p class="term-muted">Ran 1 shell command</p>
-    <p class="term-bullet" style="margin-top: 6px;">● Sent a short &quot;what are you up to?&quot; query to all 7 agents — <strong>Jim, Pam, Kevin, Ryan, Stanley, Meredith, and Toby</strong>. The orchestrator will deliver them from my outbox; each is asked for a one- or two-line status (current work + next step, or idle/parked/blocked).</p>
-    <p class="term-muted" style="margin-top: 4px;">Replies land in my inbox — I'll collect them and give you a consolidated one-line-per-agent rundown as they come in.</p>
-    <p class="term-baked">* Baked for 18s</p>
+    <p class="term-bullet" style="margin-top: 6px;">● Sent a status query to all 9 agents — <strong>Jim (Kiro), Pam (Cline-1), Kevin (Cline-2), Meredith (Cline-3), Ryan (AG-3), Stanley (AG-2077), Dwight (AG-2), Toby (AG-2078), and Michael (AG-1)</strong>. Smart router distributes tasks evenly across all accounts.</p>
+    <p class="term-muted" style="margin-top: 4px;">Replies land in my inbox — I'll collect them and give you a consolidated rundown as they come in.</p>
+    <p class="term-baked">* Office floor synced with Shared Brain &amp; Mission Control</p>
     <p class="term-prompt">&gt; []</p>
   `;
 
@@ -777,14 +856,16 @@
       }
       let html = `<p class="term-cmd-bar">&gt; ACTIVE MISSION CONTROL TASKS (${officeState.tasks.length} total)</p>`;
       for (const t of officeState.tasks.slice(0, 15)) {
+        const agentName = t.agent || t.assigned_to || t.account || 'unassigned';
+        const isRunning = t.stage === 'running' || t.stage === 'in-progress' || t.stage === 'in_progress';
         html += `
           <div style="background:#FAF2E3; border:1px solid #D9CEB8; padding:6px 8px; margin:4px 0; border-radius:3px; color:#231C16;">
             <div style="display:flex; justify-content:space-between; font-weight:700;">
-              <span style="color:#B45309;">#${t.id || 'task'}</span>
-              <span style="color:#2F6F4E; text-transform:uppercase;">${t.stage || 'queued'}</span>
+              <span style="color:#B45309;">#${esc(t.id || 'task')}</span>
+              <span style="color:${isRunning ? '#16A34A' : '#B45309'}; text-transform:uppercase;">${esc(t.stage || 'queued')}</span>
             </div>
-            <div style="color:#231C16; margin-top:2px; font-weight:600;">${t.title || 'Untitled task'}</div>
-            <div style="color:#7A6F62; font-size:10px; margin-top:2px;">Agent: ${t.assigned_to || 'unassigned'} · Stage: ${t.stage || 'pending'}</div>
+            <div style="color:#231C16; margin-top:2px; font-weight:600;">${esc(t.title || 'Untitled task')}</div>
+            <div style="color:#7A6F62; font-size:10px; margin-top:2px;">Agent: <strong style="color:#1F1914;">${esc(agentName)}</strong> · Stage: ${esc(t.stage || 'pending')}</div>
           </div>
         `;
       }
@@ -798,8 +879,8 @@
       for (const m of officeState.memory.slice(0, 15)) {
         html += `
           <div style="background:#FAF2E3; border:1px solid #D9CEB8; padding:6px 8px; margin:4px 0; border-radius:3px; color:#231C16;">
-            <div style="color:#1D4ED8; font-weight:700;">${m.title || m.id}</div>
-            <div style="color:#4B3F35; font-size:11px; margin-top:2px;">${m.summary || m.snippet || ''}</div>
+            <div style="color:#1D4ED8; font-weight:700;">${esc(m.title || m.id || '')}</div>
+            <div style="color:#4B3F35; font-size:11px; margin-top:2px;">${esc(m.summary || m.snippet || '')}</div>
           </div>
         `;
       }
@@ -811,11 +892,15 @@
       }
       let html = `<p class="term-cmd-bar">&gt; REGISTERED AI WORKER ACCOUNTS (${officeState.agents.length} active)</p>`;
       for (const a of officeState.agents) {
+        const matchedChar = characters.find(c => c.agentId && c.agentId.toLowerCase() === (a.id || '').toLowerCase());
+        const charLabel = matchedChar ? `(${matchedChar.name} · ${matchedChar.role})` : '';
+        const isOffline = a.status === 'offline' || a.status === 'disabled';
+        const isWorking = a.status === 'working';
         html += `
-          <div style="display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid #E2D7C2; color:#231C16;">
-            <span style="font-weight:700; color:#1F1914;">${a.label || a.id}</span>
-            <span style="color:#6B5F54; font-size:11px;">${a.kind || 'agent'}</span>
-            <span style="color:${a.status === 'offline' ? '#DC2626' : '#2F6F4E'}; font-weight:700;">[${a.status}]</span>
+          <div style="display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid #E2D7C2; color:#231C16; font-size:11px;">
+            <span style="font-weight:700; color:#1F1914;">${esc(a.id)} <span style="font-weight:400; color:#6B5F54;">${esc(charLabel)}</span></span>
+            <span style="color:#6B5F54; font-size:10px;">${esc(a.kind || 'agent')}</span>
+            <span style="color:${isOffline ? '#DC2626' : (isWorking ? '#16A34A' : '#2F6F4E')}; font-weight:700;">[${esc(a.status)}]</span>
           </div>
         `;
       }
@@ -829,8 +914,8 @@
       for (const f of officeState.flows.slice(0, 15)) {
         html += `
           <div style="padding:5px 0; border-bottom:1px solid #E2D7C2; font-size:11px; color:#231C16;">
-            <span style="color:#7C3AED; font-weight:700;">${f.type || 'flow'}</span>: 
-            <span style="color:#1F1914;">${f.from_agent || 'orchestrator'} ➔ ${f.to_agent || 'worker'}</span>
+            <span style="color:#7C3AED; font-weight:700;">${esc(f.type || 'flow')}</span>: 
+            <span style="color:#1F1914;">${esc(f.from_agent || 'orchestrator')} ➔ ${esc(f.to_agent || 'worker')}</span>
             <span style="color:#7A6F62; float:right;">${f.time ? new Date(f.time).toLocaleTimeString() : ''}</span>
           </div>
         `;
@@ -856,28 +941,74 @@
 
       input.value = '';
       const logsEl = document.getElementById('dunder-terminal-logs');
+      const targetChar = characters.find((c) => c.id === selectedAgentId);
+      const isAutoRoute = !targetChar || targetChar.isGod;
+      const targetAgent = isAutoRoute ? null : targetChar.agentId;
+      const targetDesc = isAutoRoute ? 'Smart Router (All Accounts)' : `${targetChar.name} (${targetChar.agentId})`;
+
       if (logsEl) {
         const p1 = document.createElement('p');
-        p1.className = 'cmd';
+        p1.className = 'term-cmd-bar';
         p1.style.marginTop = '8px';
         p1.textContent = `> ${text}`;
         logsEl.appendChild(p1);
 
         const p2 = document.createElement('p');
-        p2.className = 'info';
+        p2.className = 'term-bullet';
         p2.style.marginTop = '4px';
-        p2.innerHTML = `<span style="color:#22C55E;">●</span> Michael: Routing message to floor orchestrator...`;
+        p2.innerHTML = `<span style="color:#22C55E;">●</span> Dispatching instruction to <strong>${esc(targetDesc)}</strong>...`;
         logsEl.appendChild(p2);
-
         logsEl.scrollTop = logsEl.scrollHeight;
       }
 
-      // If Mission Control has an API token, post the directive
-      fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: text, assigned_to: selectedAgentId })
-      }).catch((e) => console.log('Task dispatch attempt:', e));
+      const payload = {
+        instruction: text,
+        agent: targetAgent,
+        auto_execute: true
+      };
+
+      const dispatchHeaders = { 'Content-Type': 'application/json' };
+      if (window.authToken) {
+        dispatchHeaders['Authorization'] = `Bearer ${window.authToken}`;
+      }
+      const dispatchCall = typeof window.fetchWithAuth === 'function'
+        ? window.fetchWithAuth('/api/dispatch', { method: 'POST', body: payload })
+        : fetch('/api/dispatch', {
+            method: 'POST',
+            headers: dispatchHeaders,
+            body: JSON.stringify(payload)
+          });
+
+      dispatchCall
+        .then(async (res) => {
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`Dispatch failed HTTP ${res.status}: ${errText}`);
+          }
+          return res.json();
+        })
+        .then((data) => {
+          if (logsEl) {
+            const pSuccess = document.createElement('p');
+            pSuccess.className = 'term-muted';
+            const assigned = data.task?.assigned_agent || data.task?.assigned_account || targetAgent || 'Smart Routed';
+            pSuccess.innerHTML = `✓ Dispatched as <strong>#${esc(data.task_id || 'task')}</strong> &rarr; Assigned to <strong>${esc(assigned)}</strong>`;
+            logsEl.appendChild(pSuccess);
+            logsEl.scrollTop = logsEl.scrollHeight;
+          }
+          fetchOfficeState();
+        })
+        .catch((err) => {
+          console.error('Dispatch error:', err);
+          if (logsEl) {
+            const pErr = document.createElement('p');
+            pErr.style.color = '#DC2626';
+            pErr.style.fontSize = '11px';
+            pErr.textContent = `Dispatch error: ${err.message}`;
+            logsEl.appendChild(pErr);
+            logsEl.scrollTop = logsEl.scrollHeight;
+          }
+        });
     }
 
     sendBtn.onclick = handleSend;
@@ -957,39 +1088,100 @@
         ctxEl.textContent = `ctx ${(tokens / 1000).toFixed(0)}k/1000k (15%)`;
       }
 
-      // Synchronize live tasks to characters & bottom roster strip
-      if (state.tasks && state.tasks.length > 0) {
-        const activeTasks = state.tasks.filter((t) => t.stage === 'running' || t.stage === 'queued' || t.stage === 'delivered');
-        for (const char of characters) {
-          const task = activeTasks.find((t) => {
-            const a = (t.agent || '').toLowerCase();
-            if (char.id === 'michael' && (a.includes('orchestrator') || a.includes('architect'))) return true;
-            if (char.id === 'jim' && (a.includes('kiro') || a.includes('cli'))) return true;
-            if (char.id === 'dwight' && (a.includes('antigravity') || a.includes('2077') || a.includes('2078'))) return true;
-            if (char.id === 'kevin' && (a.includes('cline') || a.includes('account-1') || a.includes('account-2'))) return true;
-            if (char.id === 'ryan' && (a.includes('account-3') || a.includes('api'))) return true;
-            return a.includes(char.id);
-          });
-
-          if (task) {
-            char.status = 'working';
-            char.action = task.title;
-            char.bubble = task.title.length > 20 ? task.title.slice(0, 18) + '...' : task.title;
-            char.hasTaskBubble = true;
-            char.progress = task.stage === 'running' ? 75 : 30;
-          } else {
-            char.hasTaskBubble = false;
-            if (!char.isGod) {
-              char.status = 'idle';
-              char.action = 'standby';
-            }
+      // Map backend agents by ID for fast lookup
+      const agentsById = {};
+      if (state.agents && Array.isArray(state.agents)) {
+        for (const a of state.agents) {
+          if (a && a.id) {
+            agentsById[a.id.toLowerCase()] = a;
           }
         }
-        renderRosterStrip();
       }
 
-      // If the user is viewing tasks or memory tab, update live
-      if (activeTab === 'tasks' || activeTab === 'memory' || activeTab === 'activity') {
+      // Active / in-flight tasks from the swarm & mission control
+      const allTasks = state.tasks || [];
+      const activeStages = ['running', 'queued', 'delivered', 'review', 'in_progress', 'in-progress'];
+      const activeTasks = allTasks.filter((t) => activeStages.includes((t.stage || '').toLowerCase()));
+
+      // Synchronize each character on the office floor
+      for (const char of characters) {
+        const cAgentId = (char.agentId || '').toLowerCase();
+        const agentObj = agentsById[cAgentId];
+
+        // Find active task assigned to this agent
+        let task = activeTasks.find((t) => {
+          const tAgent = (t.agent || t.assigned_to || t.account || '').toLowerCase();
+          if (!tAgent) return false;
+          if (tAgent === cAgentId) return true;
+          if (cAgentId && tAgent.includes(cAgentId)) return true;
+          if (char.isGod && (tAgent.includes('orchestrator') || tAgent.includes('architect') || tAgent === 'antigravity-account-1')) return true;
+          return false;
+        });
+
+        // Also check if agentObj has a current_task_id
+        if (!task && agentObj && agentObj.current_task_id) {
+          task = allTasks.find(t => t.id === agentObj.current_task_id);
+        }
+
+        if (task) {
+          const stage = (task.stage || '').toLowerCase();
+          char.status = (stage === 'running' || stage === 'in-progress' || stage === 'in_progress') ? 'working' : (stage === 'review' ? 'review' : 'working');
+          char.action = task.title || 'executing task';
+          char.bubble = task.title.length > 22 ? task.title.slice(0, 20) + '…' : task.title;
+          char.hasTaskBubble = true;
+          char.progress = (stage === 'running') ? 75 : (stage === 'review' ? 90 : 35);
+          char.note = (char.status === 'working' ? '⚡ ' : '') + (task.title.length > 20 ? task.title.slice(0, 18) + '…' : task.title);
+        } else {
+          char.hasTaskBubble = false;
+          if (agentObj) {
+            const rawStatus = (agentObj.status || 'idle').toLowerCase();
+            if (rawStatus === 'offline' || rawStatus === 'disabled') {
+              char.status = 'offline';
+              char.action = 'offline';
+              char.bubble = 'offline';
+              char.note = `${char.role} [offline]`;
+              char.progress = 0;
+            } else if (rawStatus === 'blocked' || rawStatus === 'degraded' || rawStatus === 'rate_limited') {
+              char.status = 'blocked';
+              char.action = 'blocked';
+              char.bubble = 'blocked';
+              char.note = `${char.role} [blocked]`;
+              char.progress = 0;
+            } else {
+              char.status = 'idle';
+              char.action = char.isGod ? 'orchestrator' : 'standby';
+              char.bubble = null;
+              char.note = char.role;
+              char.progress = 0;
+            }
+          } else {
+            char.status = 'idle';
+            char.action = char.isGod ? 'orchestrator' : 'standby';
+            char.bubble = null;
+            char.note = char.role;
+            char.progress = 0;
+          }
+        }
+      }
+
+      // Re-render bottom roster strip with synchronized badges and roles
+      renderRosterStrip();
+
+      // Update boss card if selected
+      const selectedChar = characters.find(c => c.id === selectedAgentId);
+      if (selectedChar) {
+        const bossStatus = document.querySelector('.boss-status');
+        if (bossStatus) {
+          if (selectedChar.isGod) {
+            bossStatus.innerHTML = `<span class="status-sq idle"></span> idle &nbsp; Michael (All Accounts Smart Router)`;
+          } else {
+            bossStatus.innerHTML = `<span class="status-sq ${selectedChar.status}"></span> ${selectedChar.status} &nbsp; ${selectedChar.name} (${selectedChar.role})`;
+          }
+        }
+      }
+
+      // Update tab contents if on tasks/memory/workers/activity
+      if (activeTab === 'tasks' || activeTab === 'memory' || activeTab === 'workers' || activeTab === 'activity') {
         renderTabContent(activeTab);
       }
     } catch (e) {
@@ -1049,6 +1241,7 @@
     setupWindowActions();
     setupCanvasInteraction();
     renderRosterStrip();
+    setupRosterControls();
 
     try {
       // 1. Load map JSON
@@ -1073,6 +1266,7 @@
 
       // 6. Fetch live state from Mission Control
       await fetchOfficeState();
+      if (pollInterval) clearInterval(pollInterval);
       pollInterval = setInterval(fetchOfficeState, 4000);
     } catch (err) {
       console.error('Office floor init error:', err);
@@ -1081,7 +1275,19 @@
 
   // ── Expose Public MCOffice API for Mission Control ─────────────────────────
   window.MCOffice = {
+    sleep: function () {
+      isOfficeVisible = false;
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    },
     wakeUp: function () {
+      isOfficeVisible = true;
       if (!canvas) {
         init();
         return;
@@ -1098,9 +1304,13 @@
         initCharacterSprites();
       }
       renderRosterStrip();
+      setupRosterControls();
       if (!animationFrameId) {
         lastTime = performance.now();
         animationFrameId = requestAnimationFrame(render);
+      }
+      if (!pollInterval) {
+        pollInterval = setInterval(fetchOfficeState, 4000);
       }
       fetchOfficeState();
     },
@@ -1117,6 +1327,20 @@
       return { characters, selectedAgentId, activeTab, officeState };
     }
   };
+
+  document.addEventListener('visibilitychange', () => {
+    const officeTab = document.getElementById('tab-office');
+    const isTabActive = officeTab && !officeTab.classList.contains('hidden');
+    if (document.hidden || !isTabActive) {
+      if (window.MCOffice && typeof window.MCOffice.sleep === 'function') {
+        window.MCOffice.sleep();
+      }
+    } else {
+      if (window.MCOffice && typeof window.MCOffice.wakeUp === 'function') {
+        window.MCOffice.wakeUp();
+      }
+    }
+  });
 
   // Run on DOM ready
   if (document.readyState === 'loading') {

@@ -322,32 +322,68 @@ def _invalidate_system_status_cache() -> None:
     with _system_status_lock:
         _system_status_cache_time = 0.0
 
-def _refresh_single_provider_health_bg(p: Any, pid: str) -> None:
+def _refresh_single_provider_health_bg(p: Any, pid: str, account: Any, cache_key: str) -> None:
     try:
-        h = p.health()
+        h = p.health(account) if account is not None else p.health()
     except Exception as e:
         h = {"healthy": False, "error": str(e)} if hasattr(p, "id") else (False, str(e))
     with _provider_health_lock:
-        _provider_health_cache[pid] = (time.time(), h)
-        _provider_health_refreshing.discard(pid)
+        _provider_health_cache[cache_key] = (time.time(), h)
+        _provider_health_refreshing.discard(cache_key)
 
-def get_cached_provider_health(p: Any, ttl: float = 60.0) -> Any:
+def get_cached_provider_health(p: Any, account: Any = None, ttl: float = 60.0) -> Any:
     pid = getattr(p, "id", None) or getattr(p, "provider_id", str(p))
+    acct_id = getattr(account, "account_id", getattr(account, "id", "")) if account else ""
+    cache_key = f"{pid}:{acct_id}" if acct_id else pid
     now = time.time()
-    cached = _provider_health_cache.get(pid)
+    cached = _provider_health_cache.get(cache_key)
     if cached:
         if now - cached[0] >= ttl:
             with _provider_health_lock:
-                if pid not in _provider_health_refreshing:
-                    _provider_health_refreshing.add(pid)
-                    threading.Thread(target=_refresh_single_provider_health_bg, args=(p, pid), daemon=True).start()
+                if cache_key not in _provider_health_refreshing:
+                    _provider_health_refreshing.add(cache_key)
+                    threading.Thread(
+                        target=_refresh_single_provider_health_bg,
+                        args=(p, pid, account, cache_key),
+                        daemon=True
+                    ).start()
         return cached[1]
     try:
-        h = p.health()
+        h = p.health(account) if account is not None else p.health()
     except Exception as e:
         h = {"healthy": False, "error": str(e)} if hasattr(p, "id") else (False, str(e))
-    _provider_health_cache[pid] = (now, h)
+    _provider_health_cache[cache_key] = (now, h)
     return h
+
+_SWARM_EVENT_TYPE_MAP: dict[str, EventType] = {
+    "task.queued": EventType.TASK_QUEUED,
+    "task.started": EventType.TASK_STARTED,
+    "task.completed": EventType.TASK_COMPLETED,
+    "task.failed": EventType.TASK_FAILED,
+}
+
+_resources_cache: dict[str, tuple[float, Any]] = {}
+_resources_lock = threading.Lock()
+
+def _get_cached_resource_graph(ttl: float = 600.0) -> Any:
+    now = time.time()
+    with _resources_lock:
+        cached = _resources_cache.get("graph")
+        if cached and (now - cached[0] < ttl):
+            return cached[1]
+
+    from brain.context.context_builder import ContextBuilder
+    from brain.resources.resource_graph import ResourceGraphBuilder
+    builder = ContextBuilder()
+    sel = builder.selector
+    graph = ResourceGraphBuilder.build_graph(
+        None, sel.mcp_registry, sel.steering_registry,
+        sel.document_registry, sel.cli_registry, sel.repo_registry
+    )
+    data = graph.to_graph_data()
+    with _resources_lock:
+        _resources_cache["graph"] = (time.time(), data)
+    return data
 
 def _swarm_task_watcher_loop() -> None:
     """Watches ~/agentic-brain/swarm/tasks/ and emits live SSE events to dashboard clients."""
@@ -386,19 +422,19 @@ def _swarm_task_watcher_loop() -> None:
                             raw = json.loads(f.read_text(encoding="utf-8"))
                             t_id = raw.get("id") or raw.get("task_id") or f.stem
                             agent = raw.get("assigned_to") or raw.get("assigned_agent") or "auto"
+                            evt_type = _SWARM_EVENT_TYPE_MAP.get(evt_name, EventType.TASK_STARTED)
                             event_bus.publish(
-                                Event(
-                                    event_type=evt_name,
-                                    task_id=t_id,
-                                    agent_id=agent,
-                                    payload={
-                                        "task_id": t_id,
-                                        "title": raw.get("title") or raw.get("instruction") or "Swarm Task",
-                                        "status": raw.get("status", folder).upper(),
-                                        "model": raw.get("model"),
-                                        "duration": raw.get("duration_seconds"),
-                                    },
-                                )
+                                event_type=evt_type,
+                                task_id=t_id,
+                                agent_id=agent,
+                                payload={
+                                    "task_id": t_id,
+                                    "title": raw.get("title") or raw.get("instruction") or "Swarm Task",
+                                    "status": raw.get("status", folder).upper(),
+                                    "model": raw.get("model"),
+                                    "duration": raw.get("duration_seconds"),
+                                    "raw_event": evt_name,
+                                },
                             )
                     except Exception:
                         pass
@@ -1024,12 +1060,13 @@ class WizardManager:
             email = sess.config.get("email") or (sess.account.metadata.get("email") if sess.account else "")
             redirect_uri = f"{origin}/callback"
             client_id, _ = _get_antigravity_oauth_credentials()
+            oauth_state = self.issue_oauth_state(sess)
             params = {
                 "client_id": client_id,
                 "response_type": "code",
                 "redirect_uri": redirect_uri,
                 "scope": " ".join(ANTIGRAVITY_OAUTH_SCOPES),
-                "state": sess.wizard_id,
+                "state": oauth_state,
                 "access_type": "offline",
                 # `select_account` is what makes Google show the account chooser.
                 # With `consent` alone Google silently reuses whichever session the
@@ -2183,6 +2220,12 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             handler()
         except BadRequest as exc:
             self._serve_json({"error": "Bad Request", "message": str(exc)}, status=400)
+        except Exception as exc:
+            logger.exception("Internal error in %s handler: %s", getattr(self, "command", "HTTP"), exc)
+            try:
+                self._serve_json({"error": "Internal Server Error", "message": str(exc)}, status=500)
+            except Exception:
+                pass
 
     def _read_json_body(self) -> dict[str, Any] | None:
         """Read and parse a bounded JSON request body.
@@ -2333,7 +2376,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
 
                 running = [t for t in agent_tasks if t.status == TaskStatus.RUNNING and t.task_id in active_ids]
                 completed = [t for t in agent_tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.VERIFICATION_COMPLETE)]
-                failed = [t for t in agent_tasks if t.status in (TaskStatus.FAILED, TaskStatus.DEPTH_LIMIT_REACHED, TaskStatus.BUDGET_EXHAUSTED, TaskStatus.CANCELLED)]
+                failed = [t for t in agent_tasks if t.status in (TaskStatus.FAILED, TaskStatus.DEPTH_LIMIT_REACHED, TaskStatus.BUDGET_EXHAUSTED, TaskStatus.CANCELLED, TaskStatus.REJECTED, TaskStatus.BLOCKED)]
                 finished = completed + failed
                 success_rate = (len(completed) / len(finished) * 100.0) if finished else 100.0
                 durations = [t.duration_seconds for t in finished if t.duration_seconds and t.duration_seconds > 0]
@@ -2558,7 +2601,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         in_process_tasks = [t.to_dict() for t in running if t.task_id in active_ids]
         completed_tasks = [t.to_dict() for t in tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.VERIFICATION_COMPLETE)]
         ready_tasks = [t.to_dict() for t in tasks if t.status in (TaskStatus.READY, TaskStatus.BACKLOG)]
-        failed_tasks = [t.to_dict() for t in tasks if t.status in (TaskStatus.FAILED, TaskStatus.DEPTH_LIMIT_REACHED, TaskStatus.BUDGET_EXHAUSTED, TaskStatus.CANCELLED)]
+        failed_tasks = [t.to_dict() for t in tasks if t.status in (TaskStatus.FAILED, TaskStatus.DEPTH_LIMIT_REACHED, TaskStatus.BUDGET_EXHAUSTED, TaskStatus.CANCELLED, TaskStatus.REJECTED, TaskStatus.BLOCKED)]
         token_metrics = orchestrator.swarm.token_tracker.get_metrics()
 
         all_providers = registry.list_providers()
@@ -2586,22 +2629,27 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         active_jobs = [j for j in all_jobs if j.status in ("pending", "running")]
         completed_jobs = [j for j in all_jobs if j.status == "completed"]
         failed_jobs = [j for j in all_jobs if j.status == "failed"]
-        router = SmartRouter(registry)
+        router = getattr(orchestrator, "router", None) or SmartRouter(registry)
         recent_routing = router.get_routing_history(limit=5)
 
         # Phase 22 Part 8: eight explicit, independently-computed account metrics
         account_metrics = self._compute_account_metrics(all_accounts)
 
-        # Fast cached provider health check count
-        providers_online = 0
+        # Fast cached provider health check count (deduplicated by provider id)
+        online_pids: set[str] = set()
         for p in all_providers:
+            pid = getattr(p, "id", None) or getattr(p, "provider_id", str(p))
             h = get_cached_provider_health(p)
             if (isinstance(h, dict) and h.get("healthy")) or (isinstance(h, tuple) and h[0]):
-                providers_online += 1
+                online_pids.add(pid)
         for p in all_ai:
-            h = get_cached_provider_health(p)
+            pid = getattr(p, "id", None) or getattr(p, "provider_id", str(p))
+            accts = registry.account_registry.list_accounts(p.provider_id)
+            primary_acct = accts[0] if accts else None
+            h = get_cached_provider_health(p, account=primary_acct)
             if (isinstance(h, tuple) and h[0]) or (isinstance(h, dict) and h.get("healthy")):
-                providers_online += 1
+                online_pids.add(pid)
+        providers_online = len(online_pids.intersection(all_pids))
 
         mc_overview = {
             "providers_online": providers_online,
@@ -2741,7 +2789,19 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         elif path == "/api/health":
             self._serve_json(orchestrator.health(deep=False))
         elif path == "/api/tasks":
-            tasks = [t.to_dict() for t in task_manager.list_tasks()]
+            query = self.path.split("?")[1] if "?" in self.path else ""
+            params = urllib.parse.parse_qs(query)
+            is_summary = params.get("view", [""])[0] == "summary"
+            raw_tasks = task_manager.list_tasks()
+            if is_summary:
+                tasks = []
+                for t in raw_tasks:
+                    td = t.to_dict()
+                    td.pop("output", None)
+                    td.pop("result", None)
+                    tasks.append(td)
+            else:
+                tasks = [t.to_dict() for t in raw_tasks]
             self._serve_json({"tasks": tasks})
         elif path == "/api/task":
             query = self.path.split("?")[1] if "?" in self.path else ""
@@ -2749,6 +2809,8 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             task_id = params.get("task_id", [None])[0]
             if not task_id:
                 self._serve_json({"error": "Missing task_id query parameter"}, status=400)
+            elif not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$", task_id):
+                self._serve_json({"error": "Invalid task_id format"}, status=400)
             else:
                 task = task_manager.get_task(task_id)
                 if task:
@@ -3036,7 +3098,14 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 if not any(pp["id"] == ai_prov.provider_id for pp in providers):
                     accts = registry.account_registry.list_accounts(ai_prov.provider_id)
                     primary_acct = accts[0] if accts else None
-                    ok, reason = ai_prov.health(primary_acct)
+                    h = get_cached_provider_health(ai_prov, account=primary_acct, ttl=60.0)
+                    if isinstance(h, tuple):
+                        ok, reason = h
+                    elif isinstance(h, dict):
+                        ok = bool(h.get("healthy"))
+                        reason = str(h.get("error") or h.get("reason") or "")
+                    else:
+                        ok, reason = False, str(h)
                     ai_metrics = analytics.get_metrics(provider_id=ai_prov.provider_id)
                     is_unconfig = "Missing credential" in reason or "AUTH_ERROR" in reason or not accts
                     status_label = "online" if ok else ("not_configured" if is_unconfig else "offline")
@@ -3197,9 +3266,9 @@ class MissionControlHandler(BaseHTTPRequestHandler):
         elif path == "/api/routing/history":
             query = self.path.split("?")[1] if "?" in self.path else ""
             params = urllib.parse.parse_qs(query)
-            lim = _as_int(params.get("limit", [50])[0], "limit", 50)
+            lim = max(1, min(_as_int(params.get("limit", [50])[0], "limit", 50), 500))
             jid = params.get("job_id", [None])[0]
-            router = SmartRouter(registry)
+            router = getattr(orchestrator, "router", None) or SmartRouter(registry)
             history = router.get_routing_history(limit=lim, job_id=jid)
             self._serve_json({"history": history, "count": len(history)})
         elif path == "/api/routing/inspect":
@@ -3209,7 +3278,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             if not jid:
                 self._serve_json({"error": "Missing job_id query parameter"}, status=400)
             else:
-                router = SmartRouter(registry)
+                router = getattr(orchestrator, "router", None) or SmartRouter(registry)
                 dec = router.get_decision(jid)
                 if dec:
                     self._serve_json({"decision": dec.to_dict() if hasattr(dec, "to_dict") else dec})
@@ -3372,15 +3441,7 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             else:
                 self._serve_json({"documents": [d.to_dict() for d in docs], "count": len(docs)})
         elif path == "/api/resources":
-            from brain.context.context_builder import ContextBuilder
-            from brain.resources.resource_graph import ResourceGraphBuilder
-            builder = ContextBuilder()
-            sel = builder.selector
-            graph = ResourceGraphBuilder.build_graph(
-                None, sel.mcp_registry, sel.steering_registry,
-                sel.document_registry, sel.cli_registry, sel.repo_registry
-            )
-            self._serve_json(graph.to_graph_data())
+            self._serve_json(_get_cached_resource_graph())
 
         else:
             self.send_response(404)
@@ -3401,11 +3462,12 @@ class MissionControlHandler(BaseHTTPRequestHandler):
 
         # 1. Unauthenticated endpoints
         if path == "/api/route":
-            router = SmartRouter(registry)
+            router = getattr(orchestrator, "router", None) or SmartRouter(registry)
             dec = router.route(
                 task_text=payload.get("instruction", ""),
                 preferred_agent=payload.get("agent"),
                 preferred_model=payload.get("model"),
+                record=False,
             )
             self._serve_json({
                 "agent_id": dec.agent_id,
@@ -3438,6 +3500,8 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             "/api/continue",
             "/api/tasks/cancel",
             "/api/task/cancel",
+            "/api/tasks/delete",
+            "/api/task/delete",
             "/api/tasks/reconcile",
             "/api/memory/add",
             # Returns stored memory contents, so it needs a session like GET /api/memory.
@@ -3546,10 +3610,29 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 terminal_reason="USER_CANCELLED",
             )
             if cancelled:
+                _office_task_manager.update_status(
+                    task_id,
+                    TaskStatus.CANCELLED,
+                    is_terminal=True,
+                    terminal_reason="USER_CANCELLED",
+                )
+                _invalidate_system_status_cache()
                 self._serve_json({"status": "cancelled", "task": cancelled.to_dict()})
             else:
                 self._serve_json({"error": f"Task '{task_id}' not found"}, status=404)
-        elif path == "/api/tasks/reconcile":
+        elif path in ("/api/tasks/delete", "/api/task/delete"):
+            task_id = payload.get("task_id") or payload.get("id")
+            if not task_id:
+                self._serve_json({"error": "Missing task_id"}, status=400)
+                return
+            if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$", task_id):
+                self._serve_json({"error": "Invalid task_id format"}, status=400)
+                return
+            deleted = task_manager.delete_task(task_id)
+            _office_task_manager.delete_task(task_id)
+            _invalidate_system_status_cache()
+            self._serve_json({"status": "deleted", "task_id": task_id, "deleted": deleted})
+        elif path in ("/api/tasks/reconcile", "/api/task/reconcile"):
             active_ids = orchestrator.swarm.get_active_task_ids()
             stats = task_manager.reconcile_runtime_state(active_ids)
             self._serve_json(stats)
@@ -4196,13 +4279,14 @@ class MissionControlHandler(BaseHTTPRequestHandler):
             if not instruction:
                 self._serve_json({"error": "Missing 'instruction' field"}, status=400)
                 return
-            router = SmartRouter(registry)
+            router = getattr(orchestrator, "router", None) or SmartRouter(registry)
             try:
                 decision = router.route(
                     task_text=instruction,
                     preferred_agent=payload.get("agent"),
                     preferred_model=payload.get("model"),
                     routing_mode=payload.get("routing_mode", "balanced"),
+                    record=False,
                 )
                 self._serve_json({
                     "agent_id": decision.agent_id,
@@ -4340,6 +4424,29 @@ class MissionControlHandler(BaseHTTPRequestHandler):
                 self._serve_json({"status": "removed", "removed": ok})
             else:
                 self._serve_json({"error": "Quota key format must be target_type:target_id"}, status=400)
+        elif path in ("/api/task", "/api/tasks") or path.startswith("/api/tasks/") or path.startswith("/api/task/"):
+            if not self._verify_auth(path):
+                return
+            task_id = None
+            if "?" in self.path:
+                from urllib.parse import parse_qs, urlparse
+                qs = parse_qs(urlparse(self.path).query)
+                task_id = qs.get("task_id", [None])[0] or qs.get("id", [None])[0]
+            if not task_id:
+                parts = path.rstrip("/").split("/")
+                if len(parts) >= 4 and parts[2] in ("task", "tasks"):
+                    task_id = parts[3]
+            if not task_id:
+                self._serve_json({"error": "Missing task_id"}, status=400)
+                return
+            if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$", task_id):
+                self._serve_json({"error": "Invalid task_id format"}, status=400)
+                return
+
+            deleted = task_manager.delete_task(task_id)
+            _office_task_manager.delete_task(task_id)
+            _invalidate_system_status_cache()
+            self._serve_json({"status": "deleted", "task_id": task_id, "deleted": deleted})
         else:
             self.send_response(404)
             self._apply_security_headers()
@@ -4384,7 +4491,7 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
             self._serve_html_content("<h1>Missing authorization code or state</h1>", status=400)
             return
 
-        sess = wizard_manager.get(state)
+        sess = wizard_manager.consume_oauth_state(state, "antigravity") or wizard_manager.get(state)
         if not sess:
             self._serve_html_content("<h1>OAuth session not found or expired</h1>", status=404)
             return
@@ -4519,7 +4626,7 @@ p {{ color: #94a3b8; font-size: 0.875rem; }}
   </div>
   <script>
     if (window.opener) {{
-      try {{ window.opener.postMessage({{ type: 'google_oauth_complete', wizard_id: {_js_literal(state)}, account_id: {_js_literal(sess.account_id)}, email: {_js_literal(user_email)} }}, '*'); }} catch (e) {{}}
+      try {{ window.opener.postMessage({{ type: 'google_oauth_complete', wizard_id: {_js_literal(state)}, account_id: {_js_literal(sess.account_id)}, email: {_js_literal(user_email)} }}, window.location.origin); }} catch (e) {{}}
       setTimeout(() => {{ window.close(); }}, 1200);
     }} else {{
       setTimeout(() => {{

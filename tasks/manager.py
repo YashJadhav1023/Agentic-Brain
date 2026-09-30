@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 import os
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -256,9 +257,77 @@ class TaskManager:
             for d in (self._dir_queue, self._dir_active, self._dir_completed, self._dir_failed):
                 if d != target_dir:
                     (d / f"{task.task_id}.json").unlink(missing_ok=True)
+
+            # When include_swarm is True and this task has transitioned to a terminal status,
+            # remove stale records from swarm/tasks/pending and swarm/tasks/in-progress
+            # so the swarm queue and dashboard do not continue reporting it as pending or running.
+            if self._include_swarm:
+                try:
+                    swarm_dir = _brain_dir() / "swarm" / "tasks"
+                    if swarm_dir.is_dir():
+                        if task.status in (
+                            TaskStatus.CANCELLED,
+                            TaskStatus.COMPLETED,
+                            TaskStatus.FAILED,
+                            TaskStatus.VERIFICATION_COMPLETE,
+                            TaskStatus.DEPTH_LIMIT_REACHED,
+                            TaskStatus.BUDGET_EXHAUSTED,
+                            TaskStatus.REJECTED,
+                            TaskStatus.BLOCKED,
+                        ):
+                            (swarm_dir / "pending" / f"{task.task_id}.json").unlink(missing_ok=True)
+                            (swarm_dir / "in-progress" / f"{task.task_id}.json").unlink(missing_ok=True)
+                except Exception:
+                    pass
         return target_file
 
+    def delete_task(self, task_id: str) -> bool:
+        """Permanently delete a task by ID across all local directories and swarm stores."""
+        if not task_id or not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$", task_id):
+            return False
+        filename = f"{task_id}.json"
+        deleted = False
+        with self._lock:
+            # 1. Unlink from local task directories
+            for d in (self._dir_queue, self._dir_active, self._dir_completed, self._dir_failed):
+                p = d / filename
+                if p.exists():
+                    try:
+                        p.unlink(missing_ok=True)
+                        deleted = True
+                    except OSError:
+                        pass
+
+            # 2. Unlink from shared brain swarm task pool
+            if self._include_swarm:
+                try:
+                    swarm_dir = _brain_dir() / "swarm" / "tasks"
+                    if swarm_dir.is_dir():
+                        for folder in ("pending", "in-progress", "completed", "escalated"):
+                            sp = swarm_dir / folder / filename
+                            if sp.exists():
+                                try:
+                                    sp.unlink(missing_ok=True)
+                                    deleted = True
+                                except OSError:
+                                    pass
+
+                    # 3. Unlink from agent deliveries
+                    for agent_sub in ("cline", "antigravity-ide"):
+                        deliv_p = _brain_dir() / "swarm" / agent_sub / "deliveries" / filename
+                        if deliv_p.exists():
+                            try:
+                                deliv_p.unlink(missing_ok=True)
+                                deleted = True
+                            except OSError:
+                                pass
+                except Exception:
+                    pass
+        return deleted
+
     def get_task(self, task_id: str) -> Task | None:
+        if not task_id or not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$", task_id):
+            return None
         filename = f"{task_id}.json"
         for d in (self._dir_queue, self._dir_active, self._dir_completed, self._dir_failed):
             file_path = d / filename
@@ -283,6 +352,8 @@ class TaskManager:
                     "completed": TaskStatus.COMPLETED,
                     "escalated": TaskStatus.FAILED,
                 }
+                swarm_task = None
+                latest_ts = ""
                 for folder, st in status_map.items():
                     p = swarm_dir / folder / filename
                     if p.exists():
@@ -290,7 +361,14 @@ class TaskManager:
                             raw = json.loads(p.read_text(encoding="utf-8"))
                             t_id = raw.get("id") or raw.get("task_id", task_id)
                             title = raw.get("title") or raw.get("instruction") or raw.get("prompt") or "Untitled Task"
-                            return Task(
+                            file_ts = (
+                                datetime.datetime.fromtimestamp(p.stat().st_mtime, datetime.timezone.utc).isoformat()
+                                if p.exists()
+                                else datetime.datetime.now(datetime.timezone.utc).isoformat()
+                            )
+                            c_at = raw.get("created_at") or raw.get("started_at") or raw.get("completed_at") or file_ts
+                            ts_key = raw.get("completed_at") or raw.get("started_at") or c_at or file_ts
+                            cand = Task(
                                 task_id=t_id,
                                 title=title,
                                 description=raw.get("description") or "",
@@ -298,15 +376,20 @@ class TaskManager:
                                 assigned_agent=raw.get("assigned_to") or raw.get("assigned_agent"),
                                 assigned_model=raw.get("model") or raw.get("assigned_model"),
                                 actual_model=raw.get("model"),
-                                created_at=raw.get("created_at") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                created_at=c_at,
                                 started_at=raw.get("started_at"),
                                 completed_at=raw.get("completed_at"),
                                 duration_seconds=float(raw.get("duration_seconds", 0.0) or 0.0),
                                 result={"response": raw.get("output", "")} if "output" in raw else raw.get("result", {}),
                                 errors=[raw["error"]] if raw.get("error") else [],
                             )
+                            if not swarm_task or ts_key > latest_ts:
+                                swarm_task = cand
+                                latest_ts = ts_key
                         except Exception:
-                            return None
+                            continue
+                if swarm_task:
+                    return swarm_task
         return None
 
     def update_status(
@@ -499,6 +582,7 @@ class TaskManager:
                     if status
                     else ["pending", "in-progress", "completed", "escalated"]
                 )
+                swarm_tasks_by_id: dict[str, tuple[str, Task]] = {}
                 for folder in folders:
                     folder_path = swarm_dir / folder
                     if not folder_path.is_dir():
@@ -509,9 +593,15 @@ class TaskManager:
                             t_id = raw.get("id") or raw.get("task_id")
                             if not t_id or t_id in seen_ids:
                                 continue
-                            seen_ids.add(t_id)
                             st = status_folder_map.get(folder, TaskStatus.COMPLETED)
                             title = raw.get("title") or raw.get("instruction") or raw.get("prompt") or "Untitled Task"
+                            file_ts = (
+                                datetime.datetime.fromtimestamp(p.stat().st_mtime, datetime.timezone.utc).isoformat()
+                                if p.exists()
+                                else datetime.datetime.now(datetime.timezone.utc).isoformat()
+                            )
+                            c_at = raw.get("created_at") or raw.get("started_at") or raw.get("completed_at") or file_ts
+                            ts_key = raw.get("completed_at") or raw.get("started_at") or c_at or file_ts
                             task = Task(
                                 task_id=t_id,
                                 title=title,
@@ -520,7 +610,7 @@ class TaskManager:
                                 assigned_agent=raw.get("assigned_to") or raw.get("assigned_agent"),
                                 assigned_model=raw.get("model") or raw.get("assigned_model"),
                                 actual_model=raw.get("model"),
-                                created_at=raw.get("created_at") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                created_at=c_at,
                                 started_at=raw.get("started_at"),
                                 completed_at=raw.get("completed_at"),
                                 duration_seconds=float(raw.get("duration_seconds", 0.0) or 0.0),
@@ -529,9 +619,12 @@ class TaskManager:
                             )
                             if status and task.status != status:
                                 continue
-                            tasks.append(task)
+                            if t_id not in swarm_tasks_by_id or ts_key > swarm_tasks_by_id[t_id][0]:
+                                swarm_tasks_by_id[t_id] = (ts_key, task)
                         except Exception:
                             continue
+                for _, task in swarm_tasks_by_id.values():
+                    tasks.append(task)
 
         return sorted(tasks, key=lambda t: t.created_at, reverse=True)
 

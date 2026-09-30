@@ -7,9 +7,18 @@ then escalated. This drives the real execute path with a stubbed subprocess so
 the branch is exercised without consuming quota.
 """
 
+import atexit
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+if "BRAIN_DIR" not in os.environ:
+    _temp_brain = tempfile.mkdtemp(prefix="brain-failover-test-")
+    os.environ["BRAIN_DIR"] = _temp_brain
+    atexit.register(shutil.rmtree, _temp_brain, True)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import swarm  # noqa: E402
@@ -31,6 +40,8 @@ def run_case(name, failure, expect_models, expect_status, expect_call_count=None
     calls: list[str] = []
 
     def fake_run(cmd, **kwargs):
+        if not any(isinstance(a, str) and a.startswith("--model=") for a in cmd):
+            return FakeProc("1.0", "", 0)
         model = next((a.split("=", 1)[1] for a in cmd if a.startswith("--model=")), "")
         calls.append(model)
         if model in failure:
